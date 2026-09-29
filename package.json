@@ -1,0 +1,35 @@
+{
+  "name": "@roocodeinc/judgement",
+  "version": "0.1.0",
+  "description": "Fast Git checks for plain-language business rules, powered by Jev",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.20.0"
+  },
+  "bin": {
+    "judgement": "src/cli.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./src/index.d.ts",
+      "default": "./src/index.js"
+    }
+  },
+  "files": [
+    "src",
+    "README.md",
+    "LICENSE",
+    "examples",
+    ".pre-commit-hooks.yaml"
+  ],
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "benchmark": "node test/benchmark.js",
+    "check": "node --check src/cli.js && node --test test/*.test.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/RooCodeInc/judgement.git"
+  }
+}

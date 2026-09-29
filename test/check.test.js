@@ -1,0 +1,349 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join, dirname } from 'node:path';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+import {
+  check,
+  exitCode,
+  parsePolicy,
+  createJevEvaluator,
+} from '../src/index.js';
+const exec = promisify(execFile);
+const pass = async () => ({ outcome: 'pass', confidence: 0.99 });
+const bad = async () => ({ outcome: 'violation', confidence: 0.99 });
+const rule = { rule: 'Every billing operation must emit its own audit event.' };
+async function repo(t, criteria = [rule], initial = true) {
+  const root = await mkdtemp(join(tmpdir(), 'judgement-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await exec('git', ['init', '-q'], { cwd: root });
+  await exec('git', ['config', 'user.name', 'Test'], { cwd: root });
+  await exec('git', ['config', 'user.email', 'test@example.com'], {
+    cwd: root,
+  });
+  const put = async (path, text) => {
+    await mkdir(dirname(join(root, path)), { recursive: true });
+    await writeFile(join(root, path), text);
+  };
+  const git = (...args) => exec('git', args, { cwd: root });
+  if (criteria) await put('JUDGE.json', JSON.stringify({ criteria }));
+  await put('billing.js', 'original\n');
+  if (initial) {
+    await git('add', '.');
+    await git('commit', '-qm', 'initial');
+  }
+  return {
+    root,
+    put,
+    git,
+    run: (options) =>
+      check({ cwd: root, cache: false, evaluate: pass, ...options }),
+  };
+}
+
+test('reads staged content and excludes unstaged fixes', async (t) => {
+  const r = await repo(t);
+  await r.put('billing.js', 'BAD staged\n');
+  await r.git('add', '.');
+  await r.put('billing.js', 'GOOD unstaged\n');
+  const report = await r.run({
+    evaluate: async (request) => {
+      const content = request.evidence
+        .filter((p) => p.kind === 'after')
+        .map((p) => p.text)
+        .join('');
+      assert.match(content, /BAD staged/);
+      assert.doesNotMatch(content, /GOOD unstaged/);
+      return bad();
+    },
+  });
+  assert.equal(report.status, 'violation');
+  assert.equal(exitCode(report, { hook: true }), 1);
+});
+
+test('an unstaged violation does not contaminate the staged snapshot', async (t) => {
+  const r = await repo(t);
+  await r.put('billing.js', 'GOOD staged\n');
+  await r.git('add', '.');
+  await r.put('billing.js', 'BAD unstaged\n');
+  assert.equal(
+    (
+      await r.run({
+        evaluate: async (request) => {
+          assert.doesNotMatch(JSON.stringify(request), /BAD unstaged/);
+          return pass();
+        },
+      })
+    ).status,
+    'pass',
+  );
+});
+
+test('whole-change packet connects multiple changed files and unchanged imported helpers', async (t) => {
+  const r = await repo(t);
+  await r.put('audit.js', 'export const record = () => auditEvent();\n');
+  await r.git('add', '.');
+  await r.git('commit', '-qm', 'helper');
+  await r.put(
+    'billing.js',
+    'import { record } from "./audit.js";\nfunction charge() { mutate(); record(); }\n',
+  );
+  await r.put('other.js', 'second billing operation\n');
+  await r.git('add', '.');
+  let calls = 0;
+  const result = await r.run({
+    evaluate: async (request) => {
+      calls++;
+      assert.deepEqual(request.focusPaths.sort(), ['billing.js', 'other.js']);
+      assert(
+        request.evidence.some(
+          (part) => part.path === 'audit.js' && part.kind === 'context',
+        ),
+      );
+      return pass();
+    },
+  });
+  assert.equal(result.status, 'pass');
+  assert.equal(calls, 1);
+});
+
+test('policy edits do not weaken their own check and are never restored', async (t) => {
+  const r = await repo(t);
+  const updated = JSON.stringify({ criteria: [{ rule: 'A weaker rule.' }] });
+  await r.put('JUDGE.json', updated);
+  await r.put('billing.js', 'changed\n');
+  await r.git('add', '.');
+  await r.run({
+    evaluate: async (request) => {
+      assert.equal(request.rule, rule.rule);
+      return pass();
+    },
+  });
+  assert.equal(await readFile(join(r.root, 'JUDGE.json'), 'utf8'), updated);
+});
+
+test('bootstrap policy and initial commits work', async (t) => {
+  const r = await repo(t, [rule], false);
+  await r.git('add', '.');
+  const report = await r.run();
+  assert.equal(report.status, 'pass');
+  assert.equal(report.policySource, 'proposed');
+});
+
+test('absent and invalid policies have distinct outcomes', async (t) => {
+  const r = await repo(t, null);
+  assert.equal((await r.run()).status, 'pass');
+  await r.put('JUDGE.json', '{oops');
+  await r.git('add', '.');
+  const report = await r.run();
+  assert.equal(report.status, 'invalid');
+  assert.equal(exitCode(report, { hook: true }), 2);
+});
+
+test('deleted files are judged; binary changes are explicitly incomplete', async (t) => {
+  const r = await repo(t);
+  await r.git('rm', 'billing.js');
+  const deletion = await r.run({
+    evaluate: async (request) => {
+      assert.match(JSON.stringify(request.evidence), /original/);
+      return bad();
+    },
+  });
+  assert.equal(deletion.status, 'violation');
+  await r.git('reset', '--hard', 'HEAD');
+  await r.put('image.bin', Buffer.from([1, 0, 2]));
+  await r.git('add', '.');
+  const binary = await r.run();
+  assert.equal(binary.status, 'incomplete');
+  assert.deepEqual(binary.coverage.unsupported, ['image.bin']);
+});
+
+test('large file visits its middle and cannot pass from partial screens', async (t) => {
+  const r = await repo(t);
+  const content =
+    'prefix\n'.repeat(9000) + 'VIOLATION_IN_MIDDLE\n' + 'suffix\n'.repeat(9000);
+  await r.put('billing.js', content);
+  await r.git('add', '.');
+  let middle = false;
+  const report = await r.run({
+    evaluate: async (request) => {
+      if (request.kind === 'strategy')
+        return { outcome: 'global', confidence: 0.99 };
+      if (JSON.stringify(request.evidence).includes('VIOLATION_IN_MIDDLE')) {
+        middle = true;
+        return bad();
+      }
+      return pass();
+    },
+  });
+  assert(middle);
+  assert.equal(report.status, 'violation');
+  const clean = await r.run({
+    evaluate: async (request) =>
+      request.kind === 'strategy'
+        ? { outcome: 'global', confidence: 0.99 }
+        : pass(),
+  });
+  assert.equal(clean.status, 'incomplete');
+});
+
+test('large global rule never becomes an AND of file passes', async (t) => {
+  const r = await repo(t);
+  for (let i = 0; i < 8; i++)
+    await r.put(`file${i}.js`, 'large changed content\n'.repeat(300));
+  await r.git('add', '.');
+  const report = await r.run({
+    evaluate: async (request) =>
+      request.kind === 'strategy'
+        ? { outcome: 'global', confidence: 0.99 }
+        : pass(),
+  });
+  assert.equal(report.status, 'incomplete');
+  assert.equal(exitCode(report), 3);
+  assert.equal(exitCode(report, { hook: true }), 0);
+});
+
+test('local interpretation evaluates every changed file without losing the final violation', async (t) => {
+  const r = await repo(t);
+  for (let i = 0; i < 6; i++)
+    await r.put(`file${i}.js`, 'large changed content\n'.repeat(150));
+  await r.git('add', '.');
+  const seen = new Set();
+  const report = await r.run({
+    evaluate: async (request) => {
+      if (request.kind === 'strategy')
+        return { outcome: 'local', confidence: 0.99 };
+      request.focusPaths.forEach((path) => seen.add(path));
+      return request.focusPaths.includes('file5.js') ? bad() : pass();
+    },
+  });
+  assert.equal(seen.size, 6);
+  assert.equal(report.status, 'violation');
+});
+
+test('deadline preserves findings and returns even if an evaluator ignores cancellation', async (t) => {
+  const r = await repo(t, [
+    { id: 'bad', rule: 'bad' },
+    { id: 'hang', rule: 'hang' },
+  ]);
+  await r.put('billing.js', 'changed');
+  await r.git('add', '.');
+  const start = performance.now();
+  const report = await r.run({
+    deadlineMs: 300,
+    evaluate: async (request) =>
+      request.rule === 'bad' ? bad() : new Promise(() => {}),
+  });
+  assert(performance.now() - start < 650);
+  assert.equal(report.status, 'violation');
+  assert.match(report.messages.join(' '), /deadline/);
+});
+
+test('failure in another rule never erases a violation', async (t) => {
+  const r = await repo(t, [{ rule: 'bad' }, { rule: 'error' }]);
+  await r.put('billing.js', 'changed');
+  await r.git('add', '.');
+  const report = await r.run({
+    evaluate: async (request) => {
+      if (request.rule === 'bad') return bad();
+      throw new Error('offline');
+    },
+  });
+  assert.equal(report.status, 'violation');
+  assert(report.rules.some((rule) => rule.status === 'incomplete'));
+});
+
+test('index changes invalidate a clean judgment', async (t) => {
+  const r = await repo(t);
+  await r.put('billing.js', 'first');
+  await r.git('add', '.');
+  const report = await r.run({
+    evaluate: async () => {
+      await r.put('billing.js', 'second');
+      await r.git('add', '.');
+      return pass();
+    },
+  });
+  assert.equal(report.status, 'incomplete');
+  assert.match(report.messages.join(' '), /Git changed/);
+});
+
+test('caches exact evidence and invalidates when unchanged context changes', async (t) => {
+  const r = await repo(t, [{ ...rule, context: ['audit.js'] }]);
+  await r.put('audit.js', 'old helper');
+  await r.git('add', '.');
+  await r.git('commit', '-qm', 'helper');
+  await r.put('billing.js', 'changed');
+  await r.git('add', '.');
+  let calls = 0;
+  const options = {
+    cache: true,
+    cacheIdentity: 'test:v1',
+    evaluate: async () => {
+      calls++;
+      return pass();
+    },
+  };
+  await r.run(options);
+  const cached = await r.run(options);
+  assert.equal(calls, 1);
+  assert.equal(cached.coverage.cached, 1);
+  await r.put('audit.js', 'new helper');
+  await r.git('add', '.');
+  await r.run(options);
+  assert.equal(calls, 2);
+});
+
+test('respects alternate index and unusual filenames', async (t) => {
+  const r = await repo(t);
+  const index = join(r.root, '.git', 'alternate-index');
+  const env = { ...process.env, GIT_INDEX_FILE: index };
+  await exec('git', ['read-tree', 'HEAD'], { cwd: r.root, env });
+  await r.put('file with\nnewline.js', 'changed');
+  await exec('git', ['add', '.'], { cwd: r.root, env });
+  const report = await r.run({ env });
+  assert.equal(report.coverage.files, 1);
+  assert.equal(report.status, 'pass');
+  assert.equal((await r.run()).coverage.files, 0);
+});
+
+test('strict base/head mode reviews committed changes; missing bases do not pass', async (t) => {
+  const r = await repo(t);
+  const base = (await r.git('rev-parse', 'HEAD')).stdout.trim();
+  await r.put('billing.js', 'changed');
+  await r.git('add', '.');
+  await r.git('commit', '-qm', 'change');
+  assert.equal(
+    (await r.run({ base, head: 'HEAD', evaluate: bad })).status,
+    'violation',
+  );
+  assert.equal((await r.run({ base: 'does-not-exist' })).status, 'incomplete');
+});
+
+test('validates policies and API answers', async () => {
+  assert.throws(() =>
+    parsePolicy('{"criteria":[{"rule":"hi","context":["../secret"]}]}'),
+  );
+  assert.throws(() =>
+    parsePolicy('{"criteria":[{"rule":"hi","unknown":true}]}'),
+  );
+  await assert.rejects(
+    createJevEvaluator({ apiKey: '' })({ kind: 'strategy', rule: 'hello' }),
+    /API key/,
+  );
+});
+
+test('an orphan branch with other refs can bootstrap a policy', async (t) => {
+  const r = await repo(t);
+  await r.git('checkout', '--orphan', 'new-root');
+  assert.equal((await r.run()).status, 'pass');
+});
+
+test('missing explicitly required context cannot produce a pass', async (t) => {
+  const r = await repo(t, [{ ...rule, context: ['missing.ts'] }]);
+  await r.put('billing.js', 'change');
+  await r.git('add', '.');
+  assert.equal((await r.run()).status, 'incomplete');
+});

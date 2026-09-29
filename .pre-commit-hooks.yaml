@@ -1,0 +1,9 @@
+- id: judgement
+  name: Judgement
+  description: Check staged changes against plain-language repository rules
+  entry: judgement check --staged --hook
+  language: node
+  language_version: '24.14.0'
+  pass_filenames: false
+  always_run: true
+  stages: [pre-commit]
