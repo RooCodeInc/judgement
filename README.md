@@ -269,7 +269,8 @@ and unresolved context still prevents approval. Testers with longer timeouts als
 do not establish hook performance. Confirm improvements through `testRules` or
 `calibrate`, with held-out examples and the production deadline.
 
-The model answers one boolean question: does this change violate the rule?
+The model answers one boolean question: do the changed lines need correction to
+satisfy the rule? A yes means a changed passage violates a requirement.
 TypeSafe's [Noul primitive](https://docs.typesafe.ai/primitives/noul) returns the
 probability of yes, without a separate confidence score. Judgement flags a violation
 at or above the rule's threshold. Every lower score, including 0.5, produces no

@@ -1,6 +1,6 @@
 {
   "name": "@roo-code/judgement",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Fast Git checks for plain-language business rules, powered by Jev",
   "type": "module",
   "license": "MIT",
