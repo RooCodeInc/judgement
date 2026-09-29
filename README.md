@@ -92,7 +92,7 @@ incomplete hook runs from completed ones. `--dry-run` sends no model requests.
 `--verbose` (or `-v`) streams file/rule progress, request sizes, cache hits,
 model answers, and timings to stderr. It does not print source contents or
 credentials. JSON reports remain on stdout. Model answers are intermediate;
-the final report applies confidence thresholds and coverage requirements.
+the final report applies violation-probability thresholds and coverage requirements.
 
 ## Rules
 
@@ -103,8 +103,8 @@ the final report applies confidence thresholds and coverage requirements.
 - `files`: optional repository-relative globs selecting changes that activate
   the rule. Other files can still be supporting evidence.
 - `context`: optional repository-relative globs adding supporting source files from the proposed snapshot.
-- `threshold`: confidence cutoff between 0 and 1; defaults to 0.85. It is not a
-  measured probability that the change is correct.
+- `threshold`: violation-probability cutoff between 0 and 1; defaults to 0.85.
+  A score at or above it flags a violation. A score below it does not flag one.
 
 Globs use `picomatch` syntax and include dotfiles and hidden directories. Bare names also match path components;
 trailing `/` selects a directory. Absolute paths, `..`, negation, and backslashes
@@ -256,29 +256,34 @@ console.log(example.name, example.expected, example.threshold, packet.stage);
 
 Preparation uses disposable Git repositories and the checker's evidence planner.
 It makes no inference calls and leaves the real index untouched. Packets include
-initial evidence, the expansion requested after an uncertain answer, and partial
-screens where needed. Expected labels remain outside model inputs. The output
+initial evidence, expanded evidence for manual inspection, and partial screens
+where needed. The default binary evaluator uses the initial packet; it does not
+expand evidence merely because a probability is near the cutoff. Expected labels remain outside model inputs. The output
 includes policy and fixture hashes for detecting stale presets. Options include
 `ruleId`, `examplesPath`, `examplesDirectory`, `deadlineMs` (30 seconds per example),
 and `signal`.
 
-Replay packets to inspect raw answers, confidence, probabilities, and latency.
+Replay packets to inspect violation probabilities and latency.
 A packet answer is not a full check result: partial screens cannot approve a file,
 and unresolved context still prevents approval. Testers with longer timeouts also
 do not establish hook performance. Confirm improvements through `testRules` or
 `calibrate`, with held-out examples and the production deadline.
 
-The model chooses `pass`, `violation`, or `unclear`. A pass covers both compliant
-and inapplicable changes. Confidence measures how strongly the model favors its
-answer; it does not separately measure applicability. A confidently inapplicable
-change should pass. Low-confidence answers and unclear evidence remain incomplete.
+The model answers one boolean question: does this change violate the rule?
+TypeSafe's [Noul primitive](https://docs.typesafe.ai/primitives/noul) returns the
+probability of yes, without a separate confidence score. Judgement flags a violation
+at or above the rule's threshold. Every lower score, including 0.5, produces no
+finding. Missing required context, unsupported or partial evidence, and request
+failures still make the check incomplete. A completed check with no findings is
+reported as `pass`; this is not a guarantee that the changes contain no violations.
 
-## Calibrating a rule's confidence threshold
+## Calibrating a rule's violation cutoff
 
-Choose a threshold from labeled examples of your rule. Confidence measures how
-strongly the model favors its answer; it is not a measured accuracy rate for your
-repository. See TypeSafe's [confidence guide](https://docs.typesafe.ai/confidence)
-for the distinction. The default `0.85` is a starting point, not a universal cutoff.
+Choose a cutoff from labeled examples of your rule. A higher cutoff requires
+stronger evidence to flag a violation; it can also miss more real violations.
+The default `0.85` is a starting point. Recalibrate when changing the question,
+primitive, or model: a Choice confidence cutoff does not transfer to a Noul
+probability cutoff.
 
 1. **Build a small labeled set before looking at scores.** Include clear
    violations, valid changes, and valid exceptions that resemble violations.
@@ -306,7 +311,7 @@ for the distinction. The default `0.85` is a starting point, not a universal cut
    several times per example, such as three to five runs, with caching disabled.
    When Judgement is embedded in an application, use its evaluator and settings
    rather than accidentally testing a different standalone backend. Record the
-   backend/model version, outcomes, confidence scores, final statuses, and time.
+   backend/model version, outcomes, violation probabilities, final statuses, and time.
    Avoid concurrent checks against the same index; use separate fixtures or
    run their repetitions sequentially.
 
@@ -315,19 +320,17 @@ for the distinction. The default `0.85` is a starting point, not a universal cut
    Also track outright incorrect passes. A valid change reported as incomplete
    is not a successful pass: hook mode permits it, but strict mode blocks it.
    Likewise, an incomplete violation is a missed block in hook mode.
-5. **Verify the chosen threshold through the full checker.** Raw scores are
-   useful for an initial comparison, but changing the threshold can trigger
-   context expansion and a different answer. Check final reports, held-out
+5. **Verify the chosen threshold through the full checker.** Raw probabilities are useful for comparing cutoffs. Repeat the full check
+   to verify behavior on actual evidence and measure variation. Check final reports, held-out
    examples, and hook deadlines before adopting it. Recalibrate after changing
    the rule wording, evidence selection, model, or backend.
 
-The same threshold applies to `pass` and `violation` answers.
-An answer below the threshold remains incomplete; `unclear` remains incomplete
-regardless of confidence. Lowering the threshold cannot fix missing credentials,
-timeouts, unsupported evidence, or an ambiguous rule. If false blocks and true
-violations have overlapping scores, clarify the rule or supply the needed
-context and test again. Choose the tradeoff per rule: missing a wording issue
-and missing an authorization flaw have different consequences.
+For binary answers, flag only when `violationProbability >= threshold`. Lowering
+the cutoff can recover missed violations but may introduce false blocks. It cannot
+fix unavailable inference or missing required evidence. If valid and violating
+examples have overlapping scores, clarify the rule or improve the evidence before
+selecting a cutoff. Report any rule without positive examples as uncalibrated for
+detection; valid examples alone do not establish recall.
 
 ## Evidence and large changes
 
@@ -341,13 +344,16 @@ selected by `context`. Write localized rules: UI wording, use of a shared
 component, or a guard around an operation in that file. Supply the helper or
 convention file explicitly when the rule needs it. Repository-wide inventories,
 uniqueness, parity, and aggregate rules are outside v1's supported scope; the
-model is instructed to return unclear for them.
+single-file evidence cannot establish those guarantees.
 
 Checks start with every diff hunk and 12 nearby unchanged lines, plus explicit
-`context` files. A small edit to a large file can finish in one request. If the
-answer is unclear or below the confidence threshold, Judgement tries the full
-staged file; if that will not fit, it tries 80 lines around every hunk. Expansion
-uses at most one additional model request, within the same execution deadline.
+`context` files. The default binary judgment makes one request for this packet.
+A below-threshold score completes without a finding. Supply required supporting
+files through `context`; the model cannot request missing semantic context with a
+separate answer. `prepareExamples` also provides expanded packets for inspection.
+Custom outcome/confidence evaluators can request one expansion by returning
+`unclear` or a below-threshold confidence. Expansion includes the full staged file
+when it fits, or 80 lines around every hunk, within the same execution deadline.
 
 Large commits run file checks in parallel with bounded concurrency. Oversized
 diffs or explicit context are screened in bounded chunks. Every text chunk is visited in a
@@ -381,10 +387,11 @@ process.exitCode = exitCode(report, { hook: true });
 ```
 
 An `evaluate(request, signal)` function can supply another transport. It returns
-`{ outcome, confidence }`. Use exported `question(request)` to retain the same
+`{ violationProbability }`, a finite number between 0 and 1. Use exported `question(request)` to retain the same
 rubric, honor the AbortSignal, and set a stable `cacheIdentity` that changes with
 the model/backend configuration. Custom evaluators have caching disabled unless
-an identity is supplied. Type declarations ship with the package.
+an identity is supplied. Type declarations ship with the package. Custom evaluators returning
+`{ outcome, confidence }` retain their existing confidence and uncertainty semantics.
 
 `installGitHook({ cwd, command })` is available for managed runtimes. It stores
 wrappers in Git metadata, runs the original pre-commit hook first, and preserves

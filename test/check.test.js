@@ -598,3 +598,87 @@ test('saved counterexamples do not trigger normal rule checks', async (t) => {
   assert.equal(report.status, 'pass');
   assert.equal(calls, 0);
 });
+
+test('binary judgments use one inclusive threshold and do not expand scores below it', async (t) => {
+  const r = await repo(t, [{ ...rule, threshold: 0.85 }]);
+  await r.put('billing.js', 'changed');
+  await r.git('add', '.');
+  for (const probability of [0, 0.5, 0.849, 0.85, 1]) {
+    let calls = 0;
+    const messages = [];
+    const result = await r.run({
+      evaluate: async () => {
+        calls++;
+        return { violationProbability: probability };
+      },
+      onDiagnostic: (message) => messages.push(message),
+    });
+    assert.equal(result.status, probability >= 0.85 ? 'violation' : 'pass');
+    assert.equal(calls, 1);
+    assert(
+      messages.some((message) => message.includes('violation probability')),
+    );
+  }
+  const options = {
+    cache: true,
+    cacheIdentity: 'binary-test',
+    evaluate: async () => ({ violationProbability: 0.5 }),
+  };
+  await r.run(options);
+  assert.equal((await r.run(options)).coverage.cached, 1);
+});
+
+test('binary scores cannot approve missing context, unsupported files, partial screens or failed requests', async (t) => {
+  const missing = await repo(t, [{ ...rule, context: ['missing.js'] }]);
+  await missing.put('billing.js', 'changed');
+  await missing.git('add', '.');
+  assert.equal(
+    (await missing.run({ evaluate: async () => ({ violationProbability: 0 }) }))
+      .status,
+    'incomplete',
+  );
+
+  const r = await repo(t);
+  await r.put('billing.js', 'x'.repeat(60_000));
+  await r.git('add', '.');
+  const partial = await r.run({
+    evaluate: async (request) => {
+      assert.equal(request.complete, false);
+      return { violationProbability: 0 };
+    },
+  });
+  assert.equal(partial.status, 'incomplete');
+  assert.equal(
+    (await r.run({ evaluate: async () => ({ violationProbability: 1 }) }))
+      .status,
+    'violation',
+  );
+  await r.put('billing.js', Buffer.from([0, 1, 2]));
+  await r.git('add', '.');
+  assert.equal(
+    (await r.run({ evaluate: async () => ({ violationProbability: 0 }) }))
+      .status,
+    'incomplete',
+  );
+  await r.put('billing.js', 'changed');
+  await r.git('add', '.');
+  assert.equal(
+    (
+      await r.run({
+        evaluate: async () => {
+          throw new Error('unavailable');
+        },
+      })
+    ).status,
+    'incomplete',
+  );
+  assert.equal(
+    (
+      await r.run({
+        deadlineMs: 200,
+        evaluate: async () => new Promise(() => {}),
+      })
+    ).status,
+    'incomplete',
+  );
+});

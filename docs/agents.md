@@ -38,7 +38,7 @@ Save rules in `.judgement/rules.json`:
 - Scope `files` to relevant paths. Globs are relative to the repository root and
   match hidden paths too. `context` selects unchanged supporting files from the
   same Git snapshot. Keep it focused; it is not a request to inspect the whole repo.
-- A threshold is a decision cutoff, not proof of accuracy. The default 0.85 is a
+- A threshold is a violation-probability cutoff, not proof of accuracy. The default 0.85 is a
   starting point. Do not weaken the rule or lower its threshold just to get green.
 
 ## Save labeled examples
@@ -108,8 +108,8 @@ Inspect false blocks, caught violations, incorrect passes, incomplete results,
 operational failures, scores, and timing separately. When a case fails:
 
 1. Check its label, path, rule wording, and selected supporting context.
-2. Distinguish an uncertain correct answer from a wrong answer. Lowering a threshold
-   cannot repair a wrong outcome and may turn uncertainty into a false block.
+2. Distinguish an uncertain correct answer from a wrong answer. Lowering a cutoff can catch more violations and also introduce false blocks.
+   If valid and violating examples overlap, clarify the rule or its evidence.
 3. Repeat the run. Never present one score as a guarantee.
 4. Validate a candidate against separately labeled held-out examples before adopting
    it. Use `--examples` for one rule, or `test --examples-dir` / `calibrate --all
@@ -138,12 +138,15 @@ isolated repository setup, threshold logic, or reporting into each application.
 Use `prepareExamples` to obtain exact checker request packets from the project's
 fixtures. Send each packet's `state` and `questions` to the configured backend;
 keep `expected`, names, and thresholds as tester metadata. Inspect both initial
-and expanded packets, with raw confidence and answer probabilities visible.
+and expanded packets, with raw violation probabilities visible.
 Preparation makes no inference calls. Generated inputs can be bundled as presets;
 regenerate them when their policy, fixture, or package version changes.
 
-The model chooses `pass`, `violation`, or `unclear`. Both compliant and
-inapplicable changes belong in `pass`. Confidence measures strength of preference
-for the chosen answer, not applicability. A low-confidence answer or `unclear`
-remains incomplete. Verify changes through repeated full checks and held-out
-examples at the production deadline.
+The model answers whether a change violates the rule. Its Noul value is the
+probability of a violation. Scores at or above the cutoff flag a violation;
+every lower score produces no finding, including an ambiguous score of 0.5.
+Missing required evidence, partial screens, unsupported files, and failed requests
+remain incomplete. The default binary evaluator does not request context expansion
+based on its probability. Use explicit context and compare expanded packets when
+investigating a missed violation. Recalibrate when changing question types; Choice
+confidence and Noul probability use different meanings and scales.

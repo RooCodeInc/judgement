@@ -1,5 +1,7 @@
 export type Outcome = 'pass' | 'violation' | 'unclear' | 'not_applicable';
-export type Answer = { outcome: Outcome; confidence: number };
+export type Answer =
+  | { violationProbability: number }
+  | { outcome: Outcome; confidence: number };
 export type Evidence = {
   path: string;
   kind: 'patch' | 'before' | 'after' | 'context';
@@ -30,6 +32,7 @@ export type RuleResult = {
   findings: {
     paths: string[];
     confidence: number;
+    violationProbability?: number;
     sources: Pick<Evidence, 'path' | 'kind' | 'line'>[];
   }[];
   unresolved: string[];
@@ -82,9 +85,9 @@ export function exitCode(
 export function formatReport(report: Report): string;
 export function createJevEvaluator(options?: BackendOptions): Evaluator;
 export function question(request: JudgeRequest): {
-  type: 'choice';
+  type: 'noul';
   instructions: string;
-  criteria: Record<string, string>;
+  criteria: { true: string; false: string };
 };
 export function validateAnswer(answer: unknown, request: JudgeRequest): Answer;
 export function parsePolicy(text: string): { criteria: Criterion[] };

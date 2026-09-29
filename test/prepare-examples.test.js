@@ -63,7 +63,7 @@ test('prepares the exact initial and expanded checker requests without labels in
   });
 });
 
-test('the model chooses between acceptance, violation, and uncertainty', () => {
+test('the model asks for the probability of a violation', () => {
   const request = {
     kind: 'judge',
     rule: 'rule',
@@ -73,10 +73,7 @@ test('the model chooses between acceptance, violation, and uncertainty', () => {
     unresolved: [],
   };
   const result = question(request);
-  assert.deepEqual(Object.keys(result.criteria), [
-    'pass',
-    'violation',
-    'unclear',
-  ]);
-  assert.match(result.criteria.pass, /does not apply/);
+  assert.equal(result.type, 'noul');
+  assert.deepEqual(Object.keys(result.criteria), ['true', 'false']);
+  assert.match(result.criteria.false, /outside its scope/);
 });

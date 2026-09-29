@@ -38,7 +38,7 @@ export async function prepareExamples(options = {}) {
           signal: options.signal,
           evaluate: async (request) => {
             requests.push(structuredClone(request));
-            // Ask the production checker to prepare its uncertainty expansion too.
+            // Use the custom-evaluator expansion path to offer more context for inspection.
             return { outcome: 'unclear', confidence: 1 };
           },
         });

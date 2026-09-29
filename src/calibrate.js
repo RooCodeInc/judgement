@@ -13,6 +13,7 @@ import {
   createJevEvaluator,
   MODEL,
   PROTOCOL_VERSION,
+  formatAnswer,
   validateAnswer,
 } from './model.js';
 
@@ -312,7 +313,7 @@ export async function calibrate(options = {}) {
                 operationalFailure,
               });
               diagnostics(
-                `${JSON.stringify(example.name)} threshold ${threshold} run ${repetition}: ${result.status}; ${answers.map((answer) => `${answer.outcome} ${answer.confidence.toFixed(2)}`).join(', ') || 'no judgments'}`,
+                `${JSON.stringify(example.name)} threshold ${threshold} run ${repetition}: ${result.status}; ${answers.map((answer) => formatAnswer(answer)).join(', ') || 'no judgments'}`,
               );
             }
           }
@@ -391,10 +392,10 @@ export function formatCalibrationReport(report) {
     ),
     `Recommendation: ${report.recommendation ?? 'none'}. ${report.recommendationReason}`,
     'Incomplete checks permit hook commits but fail strict checks. No policy files were changed.',
-    'Example results (confidence may include context expansion):',
+    'Example results (raw model answers):',
     ...report.results.map(
       (run) =>
-        `  ${JSON.stringify(run.example)} @ ${run.threshold}, run ${run.repetition}: ${run.status}; ${run.answers.map((answer) => `${answer.outcome} ${answer.confidence.toFixed(2)}${answer.complete ? '' : ' [partial]'}`).join(', ') || 'no judgments'}`,
+        `  ${JSON.stringify(run.example)} @ ${run.threshold}, run ${run.repetition}: ${run.status}; ${run.answers.map((answer) => `${formatAnswer(answer)}${answer.complete ? '' : ' [partial]'}`).join(', ') || 'no judgments'}`,
     ),
   ];
   return lines.join('\n');
