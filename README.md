@@ -107,6 +107,76 @@ Existing policy comes from the base tree. If no policy exists there, a newly
 staged policy can bootstrap checking. Editing or deleting a policy does not
 weaken the check for the same commit. Judgement never rewrites your policy.
 
+## Calibrating a rule's confidence threshold
+
+Choose a threshold from labeled examples of your rule. Confidence measures how
+strongly the model favors its answer; it is not a measured accuracy rate for your
+repository. See TypeSafe's [confidence guide](https://docs.typesafe.ai/confidence)
+for the distinction. The default `0.85` is a starting point, not a universal cutoff.
+
+1. **Build a small labeled set before looking at scores.** Include clear
+   violations, valid changes, and valid exceptions that resemble violations.
+   For a capitalization rule, test mid-sentence capitals, sentence beginnings,
+   headings, quoted UI labels, code identifiers, fixes to existing violations,
+   and unrelated edits near old violations. Include realistic file paths,
+   surrounding context, and small edits to large files. Reserve some examples
+   to validate your choice after tuning.
+2. **Use an isolated test repository for each candidate policy.** Commit the
+   candidate `JUDGE.json` as the baseline, then stage a representative change.
+   Merely editing or staging a new threshold in an existing repository will
+   still evaluate against its base policy. Do not overwrite your real staged
+   work to run calibration fixtures. Isolating one rule also makes its results
+   easier to interpret.
+3. **Run through the same backend and model used by your hook.** For the
+   standalone CLI, inspect the plan and then collect real scores:
+
+   ```sh
+   judgement check --staged --dry-run --verbose
+   judgement check --staged --verbose --no-cache
+   judgement check --staged --hook --verbose --no-cache
+   ```
+
+   A dry run checks evidence planning without inference. Repeat real evaluations
+   several times per example, such as three to five runs, with caching disabled.
+   When Judgement is embedded in an application, use its evaluator and settings
+   rather than accidentally testing a different standalone backend. Record the
+   backend/model version, outcomes, confidence scores, final statuses, and time.
+   Avoid concurrent checks against the same index; use separate fixtures or
+   run their repetitions sequentially.
+4. **Compare candidate thresholds.** Count violations that would block, valid
+   changes that would incorrectly block, and incomplete checks in each group.
+   Also track outright incorrect passes. A valid change reported as incomplete
+   is not a successful pass: hook mode permits it, but strict mode blocks it.
+   Likewise, an incomplete violation is a missed block in hook mode.
+5. **Verify the chosen threshold through the full checker.** Raw scores are
+   useful for an initial comparison, but changing the threshold can trigger
+   context expansion and a different answer. Check final reports, held-out
+   examples, and hook deadlines before adopting it. Recalibrate after changing
+   the rule wording, evidence selection, model, or backend.
+
+For example, a wording-rule calibration used 14 labeled changes with three runs
+per change. Initial diff-only scores gave this comparison:
+
+| Threshold | Violation runs that would block | Valid runs that would incorrectly block |
+| --- | --- | --- |
+| 0.96 | 14/18 | 0/24 |
+| 0.90 | 17/18 | 0/24 |
+| 0.85 | 18/18 | 0/24 |
+
+The full checker at `0.85` then blocked all 18 violation runs, with no false
+blocks across 24 valid runs. However, 12 valid runs remained incomplete. That
+supported lowering the threshold for this wording rule, while also revealing
+uncertainty around permitted exceptions. These are observations from a small
+sample, not an accuracy guarantee or a recommended threshold for every rule.
+
+The same threshold applies to `pass`, `not_applicable`, and `violation` answers.
+An answer below the threshold remains incomplete; `unclear` remains incomplete
+regardless of confidence. Lowering the threshold cannot fix missing credentials,
+timeouts, unsupported evidence, or an ambiguous rule. If false blocks and true
+violations have overlapping scores, clarify the rule or supply the needed
+context and test again. Choose the tradeoff per rule: missing a wording issue
+and missing an authorization flaw have different consequences.
+
 ## Evidence and large changes
 
 Judgement snapshots the index with `git write-tree`, including temporary indexes
