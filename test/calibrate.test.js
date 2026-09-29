@@ -306,25 +306,49 @@ test('chooses the highest threshold when detection and valid passes tie', async 
 
 test('cancellation waits for workers and removes disposable repositories', async (t) => {
   const f = await fixture(t);
-  const before = new Set(
-    (await readdir(tmpdir())).filter((name) =>
-      name.startsWith('judgement-calibrate-'),
-    ),
-  );
-  const controller = new AbortController();
-  await assert.rejects(
-    f.run({
-      signal: controller.signal,
-      evaluate: async () => {
-        controller.abort();
-        throw new Error('stop');
+  const temporary = join(f.cwd, 'temporary');
+  await mkdir(temporary);
+  // Other test files also run calibrations. Isolate this invocation's temp root
+  // in a child process so cleanup assertions cannot observe their repositories.
+  await exec(
+    process.execPath,
+    [
+      '--input-type=module',
+      '-e',
+      `
+        import assert from 'node:assert/strict';
+        import { readdir } from 'node:fs/promises';
+        import { tmpdir } from 'node:os';
+        import { calibrate } from ${JSON.stringify(new URL('../src/index.js', import.meta.url).href)};
+        const controller = new AbortController();
+        let calls = 0;
+        await assert.rejects(calibrate({
+          cwd: process.argv[1],
+          ruleId: 'wording',
+          thresholds: [0.85, 0.96],
+          repeats: 2,
+          signal: controller.signal,
+          evaluate: async () => {
+            calls++;
+            controller.abort();
+            throw new Error('stop');
+          },
+        }));
+        assert.ok(calls > 0, 'Cancellation must happen during evaluation');
+        assert.deepEqual(await readdir(tmpdir()), []);
+      `,
+      f.cwd,
+    ],
+    {
+      env: {
+        ...process.env,
+        TMPDIR: temporary,
+        TEMP: temporary,
+        TMP: temporary,
       },
-    }),
+    },
   );
-  const after = (await readdir(tmpdir())).filter(
-    (name) => name.startsWith('judgement-calibrate-') && !before.has(name),
-  );
-  assert.deepEqual(after, []);
+  assert.deepEqual(await readdir(temporary), []);
 });
 
 test('missing policies and unmatched files fail before inference', async (t) => {
