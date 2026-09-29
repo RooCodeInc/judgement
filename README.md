@@ -127,8 +127,8 @@ weaken the check for the same commit. Judgement never rewrites your policy.
 Give each rule a stable `id`. Calibration uses that ID to find its examples.
 Policy files and `.judgement/examples/` are excluded from normal rule checks, so
 labeled counterexamples do not trigger your commit hook.
-`.judgement/rules.json` is the only policy location. File and context globs remain
-relative to the repository root.
+Save rules in `.judgement/rules.json`. File and context globs are relative to the
+repository root.
 
 ## Test all rules
 

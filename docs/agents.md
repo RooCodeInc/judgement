@@ -16,7 +16,7 @@ comparing thresholds, and reporting results.
 
 ## Write a rule
 
-Use `.judgement/rules.json`, the only policy location:
+Save rules in `.judgement/rules.json`:
 
 ```json
 {
