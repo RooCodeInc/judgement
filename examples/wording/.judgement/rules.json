@@ -1,0 +1,10 @@
+{
+  "criteria": [
+    {
+      "id": "wording",
+      "rule": "In user-facing prose, use lowercase session and task except at sentence beginnings, in title case, or when quoting an exact UI label.",
+      "files": ["docs/**"],
+      "threshold": 0.85
+    }
+  ]
+}

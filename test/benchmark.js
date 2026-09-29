@@ -1,4 +1,4 @@
-import { mkdtemp, writeFile, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execFile } from 'node:child_process';
@@ -11,8 +11,9 @@ try {
   await git('init', '-q');
   await git('config', 'user.name', 'Benchmark');
   await git('config', 'user.email', 'benchmark@example.com');
+  await mkdir(join(cwd, '.judgement'));
   await writeFile(
-    join(cwd, 'JUDGE.json'),
+    join(cwd, '.judgement/rules.json'),
     JSON.stringify({ criteria: [{ rule: 'Use sentence case.' }] }),
   );
   await writeFile(join(cwd, 'file.js'), 'before\n');

@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { resolve } from 'node:path';
-import { ConfigurationError } from './policy.js';
+import { ConfigurationError, POLICY_PATH } from './policy.js';
 
 export function hash(value) {
   return createHash('sha256').update(value).digest('hex');
@@ -195,14 +195,14 @@ export async function inventory(snap, signal) {
 export async function policyBlob(snap, tree, signal) {
   const record = await git(
     snap.root,
-    ['ls-tree', tree, '--', 'JUDGE.json'],
+    ['ls-tree', tree, '--', POLICY_PATH],
     signal,
     snap.env,
   );
   if (!record) return null;
   const [mode, type, oid] = record.split(/[ \t]/);
   if (!['100644', '100755'].includes(mode) || type !== 'blob')
-    throw new ConfigurationError('JUDGE.json must be a regular file.');
+    throw new ConfigurationError('Judgement policy must be a regular file.');
   return git(snap.root, ['cat-file', 'blob', oid], signal, snap.env);
 }
 

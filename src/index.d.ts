@@ -99,3 +99,76 @@ export function installGitHook(options: {
   command: string[];
   signal?: AbortSignal;
 }): Promise<{ directory: string; previousHooksPath: string | null }>;
+
+export type CalibrationExample = {
+  name: string;
+  /** Relative changed-file path, defaults to example.md. */
+  path?: string;
+  before: string | null;
+  after: string | null;
+  expected: 'pass' | 'violation';
+  /** Unchanged supporting files in both snapshots. */
+  context?: Record<string, string>;
+};
+export type CalibrationExamples = {
+  ruleId: string;
+  examples: CalibrationExample[];
+};
+export type CalibrationOptions = BackendOptions & {
+  cwd?: string;
+  ruleId: string;
+  examplesPath?: string;
+  repeats?: number;
+  thresholds?: number[];
+  concurrency?: number;
+  /** Per-check deadline, defaults to the hook's 3000 ms. */
+  deadlineMs?: number;
+  signal?: AbortSignal;
+  dryRun?: boolean;
+  evaluate?: Evaluator;
+  onDiagnostic?: (message: string) => void;
+};
+export type CalibrationRun = {
+  example: string;
+  expected: 'pass' | 'violation';
+  threshold: number;
+  repetition: number;
+  status: Report['status'];
+  elapsedMs: number;
+  judgments: number;
+  answers: (Answer & { complete: boolean })[];
+  operationalFailure: boolean;
+};
+export type CalibrationSummary = {
+  threshold: number;
+  violationRuns: number;
+  validRuns: number;
+  caughtViolations: number;
+  falseBlocks: number;
+  incorrectPasses: number;
+  validPasses: number;
+  incompleteViolations: number;
+  incompleteValid: number;
+  operationalFailures: number;
+  judgments: number;
+  meanElapsedMs: number;
+};
+export type CalibrationReport = {
+  ruleId: string;
+  configuredThreshold: number;
+  backend: string;
+  protocolVersion: number;
+  repeats: number;
+  deadlineMs: number;
+  dryRun: boolean;
+  examples: number;
+  plannedChecks: number;
+  results: CalibrationRun[];
+  summaries: CalibrationSummary[];
+  recommendation: number | null;
+  recommendationReason: string;
+};
+export function calibrate(
+  options: CalibrationOptions,
+): Promise<CalibrationReport>;
+export function formatCalibrationReport(report: CalibrationReport): string;

@@ -10,3 +10,5 @@ export {
 } from './model.js';
 export { parsePolicy, matches, ConfigurationError } from './policy.js';
 export { installGitHook } from './hooks.js';
+
+export { calibrate, formatCalibrationReport } from './calibrate.js';

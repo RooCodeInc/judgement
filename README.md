@@ -12,13 +12,14 @@ Check code changes against your team's business rules, written in plain language
       "context": ["src/audit/**", "src/auth/**"]
     },
     {
+      "id": "payment-owner",
       "rule": "Only workspace owners may change payment settings."
     }
   ]
 }
 ```
 
-Save this as `JUDGE.json` at the repository root. Run Judgement before a commit
+Save this as `.judgement/rules.json` in your repository. Run Judgement before a commit
 or in CI. It uses [Jev](https://typesafe.ai) to make focused judgments and reads
 related source files from the exact Git snapshot being checked.
 
@@ -28,7 +29,7 @@ Node 22.20+ or 24+ and Git are required. Glob matching uses the small `picomatch
 Install the published package from npm.
 
 ```sh
-npm install --save-dev --save-exact @roo-code/judgement@0.1.5
+npm install --save-dev --save-exact @roo-code/judgement@0.2.0
 export TYPESAFE_API_KEY=...
 ./node_modules/.bin/judgement check --staged
 ```
@@ -107,6 +108,104 @@ Existing policy comes from the base tree. If no policy exists there, a newly
 staged policy can bootstrap checking. Editing or deleting a policy does not
 weaken the check for the same commit. Judgement never rewrites your policy.
 
+## Project layout
+
+```text
+.judgement/
+  rules.json
+  examples/
+    wording.json
+    billing-audit.json
+```
+
+Give each rule a stable `id`. Calibration uses that ID to find its examples.
+Policy files and `.judgement/examples/` are excluded from normal rule checks, so
+labeled counterexamples do not trigger your commit hook.
+`.judgement/rules.json` is the only policy location. File and context globs remain
+relative to the repository root.
+
+## Calibration command
+
+Save labeled examples in `.judgement/examples/wording.json` for a rule whose
+`id` is `wording`:
+
+```json
+{
+  "ruleId": "wording",
+  "examples": [
+    {
+      "name": "Mid-sentence capital",
+      "path": "docs/guide.md",
+      "before": "Review the remaining checks.\n",
+      "after": "Review the remaining Session checks.\n",
+      "expected": "violation"
+    },
+    {
+      "name": "Sentence beginning",
+      "path": "docs/guide.md",
+      "before": "History is available.\n",
+      "after": "Session history is available.\n",
+      "expected": "pass"
+    }
+  ]
+}
+```
+
+Each example has a unique name and different `before`/`after` text. Use `null`
+for the absent side of an addition or deletion. `path` defaults to `example.md`
+and must match the rule's `files`. Optional `context` maps relative paths to
+unchanged supporting file contents; the rule's `context` globs select which
+ones the checker sees. Paths cannot escape the fixture or replace its policy
+or Git metadata. Label valid exceptions and inapplicable changes as `pass`.
+
+```sh
+judgement calibrate --rule wording --dry-run
+judgement calibrate --rule wording --repeats 3 --thresholds 0.8,0.85,0.9,0.96
+judgement calibrate --rule wording --format json > calibration.json
+```
+
+The command reads your **working-tree policy**, then commits each candidate
+policy in a disposable Git repository and stages its example there. Your real
+policy, working tree, and index remain untouched. Checks use the full evaluator,
+including context expansion, with caching disabled. Calibration is opt-in and
+is never run by a commit hook. Real runs make paid model requests.
+
+Defaults: three repetitions, two concurrent fixture checks, a three-second
+per-check deadline, and thresholds `0.8`, `0.85`, `0.9`, `0.95`, plus the rule's
+current threshold. Use `--examples <path>` to select a different examples file,
+`--concurrency <1–8>` to limit parallel checks, `--timeout-ms <ms>` to match your
+check budget, and `--verbose` for progress on stderr. JSON remains on stdout.
+
+The report includes per-example answers and scores, caught violations, false
+blocks, incorrect passes, incomplete results, failures, and timing. It recommends
+only candidates that caught every labeled violation with zero false blocks,
+provided there were no operational failures anywhere in the run. Among those
+candidates it prefers more valid passes, then the highest threshold. A dataset
+must contain both labels to receive a recommendation. An incomplete valid case
+can remain even at the recommended threshold; inspect those rows before adopting
+it. Nothing automatically rewrites your policy.
+
+Calibration exits `0` when a candidate is recommended (or for a dry run), `3`
+when none can be recommended, and `2` for invalid configuration or fixture setup.
+Unlike `check`, an expected violation is a successful calibration observation.
+Use a held-out examples file to verify the selected threshold before saving it.
+
+Applications with their own inference configuration can use the same library
+harness and supply their existing evaluator:
+
+```js
+import { calibrate, formatCalibrationReport } from '@roo-code/judgement';
+
+const report = await calibrate({
+  cwd: process.cwd(),
+  ruleId: 'wording',
+  evaluate: yourExistingEvaluator,
+});
+console.log(formatCalibrationReport(report));
+```
+
+The [wording example](examples/wording/.judgement/) includes a policy and fixtures.
+
 ## Calibrating a rule's confidence threshold
 
 Choose a threshold from labeled examples of your rule. Confidence measures how
@@ -122,7 +221,7 @@ for the distinction. The default `0.85` is a starting point, not a universal cut
    surrounding context, and small edits to large files. Reserve some examples
    to validate your choice after tuning.
 2. **Use an isolated test repository for each candidate policy.** Commit the
-   candidate `JUDGE.json` as the baseline, then stage a representative change.
+   candidate `.judgement/rules.json` as the baseline, then stage a representative change.
    Merely editing or staging a new threshold in an existing repository will
    still evaluate against its base policy. Do not overwrite your real staged
    work to run calibration fixtures. Isolating one rule also makes its results

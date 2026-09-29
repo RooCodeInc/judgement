@@ -28,7 +28,8 @@ async function repo(t, criteria = [rule], initial = true) {
     await writeFile(join(root, path), text);
   };
   const git = (...args) => exec('git', args, { cwd: root });
-  if (criteria) await put('JUDGE.json', JSON.stringify({ criteria }));
+  if (criteria)
+    await put('.judgement/rules.json', JSON.stringify({ criteria }));
   await put('billing.js', 'original\n');
   if (initial) {
     await git('add', '.');
@@ -113,7 +114,7 @@ test('each changed file receives explicitly selected supporting context', async 
 test('policy edits do not weaken their own check and are never restored', async (t) => {
   const r = await repo(t);
   const updated = JSON.stringify({ criteria: [{ rule: 'A weaker rule.' }] });
-  await r.put('JUDGE.json', updated);
+  await r.put('.judgement/rules.json', updated);
   await r.put('billing.js', 'changed\n');
   await r.git('add', '.');
   await r.run({
@@ -122,7 +123,10 @@ test('policy edits do not weaken their own check and are never restored', async 
       return pass();
     },
   });
-  assert.equal(await readFile(join(r.root, 'JUDGE.json'), 'utf8'), updated);
+  assert.equal(
+    await readFile(join(r.root, '.judgement/rules.json'), 'utf8'),
+    updated,
+  );
 });
 
 test('bootstrap policy and initial commits work', async (t) => {
@@ -136,7 +140,7 @@ test('bootstrap policy and initial commits work', async (t) => {
 test('absent and invalid policies have distinct outcomes', async (t) => {
   const r = await repo(t, null);
   assert.equal((await r.run()).status, 'pass');
-  await r.put('JUDGE.json', '{oops');
+  await r.put('.judgement/rules.json', '{oops');
   await r.git('add', '.');
   const report = await r.run();
   assert.equal(report.status, 'invalid');
@@ -473,16 +477,18 @@ test('small edit to a large file uses all diff hunks without the whole file', as
   await r.put('billing.js', lines.join(''));
   await r.git('add', '.');
   let calls = 0;
-  const report = await r.run({ evaluate: async (request) => {
-    calls++;
-    assert(request.complete);
-    assert(request.evidence.every((part) => part.kind === 'patch'));
-    const text = JSON.stringify(request);
-    assert.match(text, /first edit/);
-    assert.match(text, /second edit/);
-    assert(Buffer.byteLength(text) < 5000);
-    return pass();
-  } });
+  const report = await r.run({
+    evaluate: async (request) => {
+      calls++;
+      assert(request.complete);
+      assert(request.evidence.every((part) => part.kind === 'patch'));
+      const text = JSON.stringify(request);
+      assert.match(text, /first edit/);
+      assert.match(text, /second edit/);
+      assert(Buffer.byteLength(text) < 5000);
+      return pass();
+    },
+  });
   assert.equal(report.status, 'pass');
   assert.equal(calls, 1);
 });
@@ -492,20 +498,29 @@ test('uncertain diff expands to the staged file and can complete', async (t) => 
   await r.put('billing.js', 'guard();\n' + 'context\n'.repeat(60) + 'old();\n');
   await r.git('add', '.');
   await r.git('commit', '-qm', 'baseline');
-  await r.put('billing.js', 'guard();\n' + 'context\n'.repeat(60) + 'newOperation();\n');
+  await r.put(
+    'billing.js',
+    'guard();\n' + 'context\n'.repeat(60) + 'newOperation();\n',
+  );
   await r.git('add', '.');
   await r.put('billing.js', 'unstaged content must not be used');
   let calls = 0;
-  const report = await r.run({ evaluate: async (request) => {
-    calls++;
-    if (calls === 1) {
-      assert.doesNotMatch(JSON.stringify(request), /guard\(\)/);
-      return { outcome: 'unclear', confidence: 0.99 };
-    }
-    assert(request.evidence.some((part) => part.kind === 'after' && part.text.includes('guard();')));
-    assert.doesNotMatch(JSON.stringify(request), /unstaged content/);
-    return pass();
-  } });
+  const report = await r.run({
+    evaluate: async (request) => {
+      calls++;
+      if (calls === 1) {
+        assert.doesNotMatch(JSON.stringify(request), /guard\(\)/);
+        return { outcome: 'unclear', confidence: 0.99 };
+      }
+      assert(
+        request.evidence.some(
+          (part) => part.kind === 'after' && part.text.includes('guard();'),
+        ),
+      );
+      assert.doesNotMatch(JSON.stringify(request), /unstaged content/);
+      return pass();
+    },
+  });
   assert.equal(calls, 2);
   assert.equal(report.status, 'pass');
 });
@@ -520,13 +535,66 @@ test('large-file uncertainty widens context once and remains incomplete if unres
   await r.put('billing.js', lines.join(''));
   await r.git('add', '.');
   const sizes = [];
-  const report = await r.run({ evaluate: async (request) => {
-    sizes.push(JSON.stringify(request).length);
-    assert(request.complete);
-    assert(request.evidence.every((part) => part.kind === 'patch'));
-    return { outcome: 'unclear', confidence: 0.99 };
-  } });
+  const report = await r.run({
+    evaluate: async (request) => {
+      sizes.push(JSON.stringify(request).length);
+      assert(request.complete);
+      assert(request.evidence.every((part) => part.kind === 'patch'));
+      return { outcome: 'unclear', confidence: 0.99 };
+    },
+  });
   assert.equal(sizes.length, 2);
   assert(sizes[1] > sizes[0]);
   assert.equal(report.status, 'incomplete');
+});
+
+test('policy edits still enforce the base rule', async (t) => {
+  const r = await repo(t);
+  await r.put(
+    '.judgement/rules.json',
+    JSON.stringify({ criteria: [{ rule: 'weaker replacement' }] }),
+  );
+  await r.put('billing.js', 'changed');
+  await r.git('add', '.');
+  const edited = await r.run({
+    evaluate: async (request) => {
+      assert.equal(request.rule, rule.rule);
+      assert.deepEqual(request.focusPaths, ['billing.js']);
+      return bad();
+    },
+  });
+  assert.equal(edited.status, 'violation');
+  await r.git('commit', '-qm', 'update policy');
+  await r.put('billing.js', 'changed again');
+  await r.git('add', '.');
+  const canonical = await r.run({
+    evaluate: async (request) => {
+      assert.equal(request.rule, 'weaker replacement');
+      return pass();
+    },
+  });
+  assert.equal(canonical.status, 'pass');
+});
+
+test('nonregular policies are invalid', async (t) => {
+  const r = await repo(t);
+  await r.git('rm', '.judgement/rules.json');
+  await r.put('.judgement/rules.json/nested', 'not a policy');
+  await r.git('add', '.');
+  assert.equal((await r.run()).status, 'invalid');
+});
+
+test('saved counterexamples do not trigger normal rule checks', async (t) => {
+  const r = await repo(t);
+  await r.put('.judgement/examples/wording.json', 'intentional violation');
+  await r.git('add', '.');
+  let calls = 0;
+  const report = await r.run({
+    evaluate: async () => {
+      calls++;
+      return bad();
+    },
+  });
+  assert.equal(report.status, 'pass');
+  assert.equal(calls, 0);
 });
