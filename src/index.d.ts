@@ -28,8 +28,17 @@ export type Criterion = {
 export type RuleResult = {
   id: string;
   rule: string;
+  threshold?: number;
   status: 'pass' | 'violation' | 'not_applicable' | 'incomplete';
   findings: {
+    changes?: {
+      path: string;
+      side: 'before' | 'after';
+      line: number | null;
+      text: string;
+      truncated: boolean;
+    }[];
+    omitted?: number;
     paths: string[];
     confidence: number;
     violationProbability?: number;
@@ -75,6 +84,7 @@ export type CheckOptions = BackendOptions & {
   evaluate?: Evaluator;
   env?: Record<string, string | undefined>;
   onDiagnostic?: (message: string) => void;
+  onStatus?: (event: CheckProgress) => void;
   onProgress?: (event: { id: string; status: RuleResult['status'] }) => void;
 };
 export function check(options?: CheckOptions): Promise<Report>;
@@ -157,6 +167,7 @@ export type CalibrationSummary = {
   meanElapsedMs: number;
 };
 export type CalibrationReport = {
+  fixtureSha256?: string;
   ruleId: string;
   configuredThreshold: number;
   backend: string;
@@ -227,3 +238,77 @@ export type PreparedExamples = {
 export function prepareExamples(
   options?: PreparedExamplesOptions,
 ): Promise<PreparedExamples>;
+
+export type CheckProgress = {
+  files: number;
+  rulesTotal: number;
+  rulesFinished: number;
+  judged: number;
+  cached: number;
+  elapsedMs: number;
+};
+export function formatProgress(event: CheckProgress): string;
+export function createProgressReporter(options?: {
+  write?: (text: string) => void;
+  delayMs?: number;
+  intervalMs?: number;
+}): { update(event: CheckProgress): void; stop(): void };
+export type CaptureOptions = Pick<
+  CheckOptions,
+  'cwd' | 'base' | 'head' | 'env' | 'signal'
+> & {
+  ruleId: string;
+  path: string;
+  name: string;
+  expected: 'pass' | 'violation';
+  context?: string[];
+};
+export function captureExample(
+  options: CaptureOptions,
+): Promise<CalibrationExamples>;
+export function saveCapturedExample(
+  fixture: CalibrationExamples,
+  output: string,
+): Promise<void>;
+export type ComparisonCounts = {
+  expected: 'pass' | 'violation';
+  total: number;
+  correct: number;
+  violations: number;
+  incomplete: number;
+  failures: number;
+  probabilityMin: number | null;
+  probabilityMax: number | null;
+};
+export type ComparisonReport = {
+  status: 'pass' | 'regression';
+  improvements: number;
+  regressions: number;
+  unchanged: number;
+  examples: {
+    ruleId: string;
+    name: string;
+    expected: 'pass' | 'violation';
+    change: 'improvement' | 'regression' | 'unchanged';
+    beforeThreshold: number;
+    afterThreshold: number;
+    before: ComparisonCounts;
+    after: ComparisonCounts;
+  }[];
+};
+export function compareReports(
+  before: CalibrationReport | ExampleSuiteReport,
+  after: CalibrationReport | ExampleSuiteReport,
+  options?: { beforeThreshold?: number; afterThreshold?: number },
+): ComparisonReport;
+export function formatComparison(report: ComparisonReport): string;
+export function runCli(
+  args?: string[],
+  options?: {
+    cwd?: string;
+    stdout?: (text: string) => void;
+    stderr?: (text: string) => void;
+    evaluate?: Evaluator;
+    check?: typeof check;
+  },
+): Promise<number>;

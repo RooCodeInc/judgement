@@ -2,7 +2,7 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { check } from './check.js';
-import { git, gitEnv } from './git.js';
+import { git, gitEnv, hash } from './git.js';
 import {
   ConfigurationError,
   matches,
@@ -179,6 +179,7 @@ export async function calibrate(options = {}) {
   };
   const report = {
     ruleId: criterion.id,
+    fixtureSha256: hash(JSON.stringify(examples)),
     configuredThreshold: criterion.threshold,
     backend: options.evaluate ? 'custom' : (options.model ?? MODEL),
     protocolVersion: PROTOCOL_VERSION,
