@@ -63,7 +63,7 @@ test('prepares the exact initial and expanded checker requests without labels in
   });
 });
 
-test('combined acceptable outcome is explicit and leaves the production question unchanged', () => {
+test('the model chooses between acceptance, violation, and uncertainty', () => {
   const request = {
     kind: 'judge',
     rule: 'rule',
@@ -72,20 +72,11 @@ test('combined acceptable outcome is explicit and leaves the production question
     complete: true,
     unresolved: [],
   };
-  const baseline = question(request);
-  const combined = question(request, { combineAcceptedOutcomes: true });
-  assert.deepEqual(Object.keys(baseline.criteria), [
-    'pass',
-    'violation',
-    'unclear',
-    'not_applicable',
-  ]);
-  assert.deepEqual(Object.keys(combined.criteria), [
+  const result = question(request);
+  assert.deepEqual(Object.keys(result.criteria), [
     'pass',
     'violation',
     'unclear',
   ]);
-  assert.match(combined.criteria.pass, /does not apply/);
-  assert.equal(combined.instructions, baseline.instructions);
-  assert.deepEqual(question(request), baseline);
+  assert.match(result.criteria.pass, /does not apply/);
 });

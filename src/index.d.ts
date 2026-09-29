@@ -81,13 +81,7 @@ export function exitCode(
 ): number;
 export function formatReport(report: Report): string;
 export function createJevEvaluator(options?: BackendOptions): Evaluator;
-export function question(
-  request: JudgeRequest,
-  options?: {
-    /** Experimental: combine pass and not_applicable; default behavior is unchanged. */
-    combineAcceptedOutcomes?: boolean;
-  },
-): {
+export function question(request: JudgeRequest): {
   type: 'choice';
   instructions: string;
   criteria: Record<string, string>;

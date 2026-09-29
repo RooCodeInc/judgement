@@ -242,9 +242,12 @@ The [wording example](examples/wording/.judgement/) includes a policy and fixtur
 Use `prepareExamples` to load labeled fixtures into a model tester:
 
 ```js
-import { prepareExamples, question } from '@roo-code/judgement';
+import { prepareExamples } from '@roo-code/judgement';
 
-const prepared = await prepareExamples({ cwd: process.cwd(), ruleId: 'wording' });
+const prepared = await prepareExamples({
+  cwd: process.cwd(),
+  ruleId: 'wording',
+});
 const example = prepared.examples[0];
 const packet = example.packets[0];
 // Send only packet.state and packet.questions to your inference backend.
@@ -265,12 +268,10 @@ and unresolved context still prevents approval. Testers with longer timeouts als
 do not establish hook performance. Confirm improvements through `testRules` or
 `calibrate`, with held-out examples and the production deadline.
 
-For an explicit experiment, `question(packet.state, { combineAcceptedOutcomes:
-true })` combines compliant and inapplicable changes into the `pass` option.
-The default question keeps both options. This does not change normal checks;
-compare repeated observations before adopting a custom evaluator, and change its
-cache identity when changing its question. Summed answer probabilities are not a
-replacement for the model's confidence score.
+The model chooses `pass`, `violation`, or `unclear`. A pass covers both compliant
+and inapplicable changes. Confidence measures how strongly the model favors its
+answer; it does not separately measure applicability. A confidently inapplicable
+change should pass. Low-confidence answers and unclear evidence remain incomplete.
 
 ## Calibrating a rule's confidence threshold
 
@@ -320,7 +321,7 @@ for the distinction. The default `0.85` is a starting point, not a universal cut
    examples, and hook deadlines before adopting it. Recalibrate after changing
    the rule wording, evidence selection, model, or backend.
 
-The same threshold applies to `pass`, `not_applicable`, and `violation` answers.
+The same threshold applies to `pass` and `violation` answers.
 An answer below the threshold remains incomplete; `unclear` remains incomplete
 regardless of confidence. Lowering the threshold cannot fix missing credentials,
 timeouts, unsupported evidence, or an ambiguous rule. If false blocks and true

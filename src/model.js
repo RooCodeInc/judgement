@@ -1,11 +1,11 @@
 export const MODEL = 'jev-1.13.0';
-export const PROTOCOL_VERSION = 3;
+export const PROTOCOL_VERSION = 4;
 // Conservative UTF-8 byte budgets also bound token counts without a remote tokenizer.
 export const MAX_REQUEST_BYTES = 30_000;
 export const MAX_EVIDENCE_BYTES = 23_000;
 
-export function question(request, options = {}) {
-  const result = {
+export function question(request) {
+  return {
     type: 'choice',
     instructions: [
       'Evaluate the exact repository rule in `rule` for the changed file in focusPaths using only the source evidence supplied.',
@@ -20,20 +20,13 @@ export function question(request, options = {}) {
       'Do not invent explanations or replacements. Select the outcome from the supplied choices.',
     ].join(' '),
     criteria: {
-      pass: 'The supplied evidence supports the rule for every applicable operation being evaluated.',
+      pass: 'The supplied evidence supports the rule for every applicable operation, or the rule does not apply to these changes.',
       violation:
         'The evidence establishes a specific violation of the rule, independent of any missing context.',
       unclear:
         'The rule cannot be evaluated reliably with the available evidence, or a required relationship is unresolved.',
-      not_applicable: 'The rule does not apply to these changes.',
     },
   };
-  if (options.combineAcceptedOutcomes) {
-    result.criteria.pass =
-      'The supplied evidence supports the rule for every applicable operation, or the rule does not apply to these changes.';
-    delete result.criteria.not_applicable;
-  }
-  return result;
 }
 
 export function validateAnswer(answer, request) {

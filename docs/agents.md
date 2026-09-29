@@ -142,9 +142,8 @@ and expanded packets, with raw confidence and answer probabilities visible.
 Preparation makes no inference calls. Generated inputs can be bundled as presets;
 regenerate them when their policy, fixture, or package version changes.
 
-The `question` option `combineAcceptedOutcomes: true` is an explicit experiment
-that gives compliant and inapplicable changes one acceptable option. Production
-questions keep separate options by default. Record which variant and evidence
-were tested. Do not treat a single packet, a longer tester deadline, or a sum of
-probabilities as proof that the full checker will pass. Verify candidate changes
-with repeated full checks and held-out examples before adoption.
+The model chooses `pass`, `violation`, or `unclear`. Both compliant and
+inapplicable changes belong in `pass`. Confidence measures strength of preference
+for the chosen answer, not applicability. A low-confidence answer or `unclear`
+remains incomplete. Verify changes through repeated full checks and held-out
+examples at the production deadline.
