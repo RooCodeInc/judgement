@@ -51,7 +51,7 @@ test('reads staged content and excludes unstaged fixes', async (t) => {
   const report = await r.run({
     evaluate: async (request) => {
       const content = request.evidence
-        .filter((p) => p.kind === 'after')
+        .filter((p) => p.kind === 'patch')
         .map((p) => p.text)
         .join('');
       assert.match(content, /BAD staged/);
@@ -460,4 +460,73 @@ test('broad rules include staged files and context in hidden directories', async
   });
   assert.deepEqual(seen, ['.agents/skills/example/SKILL.md']);
   assert.equal(report.status, 'violation');
+});
+
+test('small edit to a large file uses all diff hunks without the whole file', async (t) => {
+  const r = await repo(t);
+  const lines = Array.from({ length: 5000 }, (_, i) => `unchanged line ${i}\n`);
+  await r.put('billing.js', lines.join(''));
+  await r.git('add', '.');
+  await r.git('commit', '-qm', 'large baseline');
+  lines[1000] = 'first edit\n';
+  lines[4000] = 'second edit\n';
+  await r.put('billing.js', lines.join(''));
+  await r.git('add', '.');
+  let calls = 0;
+  const report = await r.run({ evaluate: async (request) => {
+    calls++;
+    assert(request.complete);
+    assert(request.evidence.every((part) => part.kind === 'patch'));
+    const text = JSON.stringify(request);
+    assert.match(text, /first edit/);
+    assert.match(text, /second edit/);
+    assert(Buffer.byteLength(text) < 5000);
+    return pass();
+  } });
+  assert.equal(report.status, 'pass');
+  assert.equal(calls, 1);
+});
+
+test('uncertain diff expands to the staged file and can complete', async (t) => {
+  const r = await repo(t);
+  await r.put('billing.js', 'guard();\n' + 'context\n'.repeat(60) + 'old();\n');
+  await r.git('add', '.');
+  await r.git('commit', '-qm', 'baseline');
+  await r.put('billing.js', 'guard();\n' + 'context\n'.repeat(60) + 'newOperation();\n');
+  await r.git('add', '.');
+  await r.put('billing.js', 'unstaged content must not be used');
+  let calls = 0;
+  const report = await r.run({ evaluate: async (request) => {
+    calls++;
+    if (calls === 1) {
+      assert.doesNotMatch(JSON.stringify(request), /guard\(\)/);
+      return { outcome: 'unclear', confidence: 0.99 };
+    }
+    assert(request.evidence.some((part) => part.kind === 'after' && part.text.includes('guard();')));
+    assert.doesNotMatch(JSON.stringify(request), /unstaged content/);
+    return pass();
+  } });
+  assert.equal(calls, 2);
+  assert.equal(report.status, 'pass');
+});
+
+test('large-file uncertainty widens context once and remains incomplete if unresolved', async (t) => {
+  const r = await repo(t);
+  const lines = Array.from({ length: 5000 }, (_, i) => `line ${i}\n`);
+  await r.put('billing.js', lines.join(''));
+  await r.git('add', '.');
+  await r.git('commit', '-qm', 'baseline');
+  lines[2500] = 'edit\n';
+  await r.put('billing.js', lines.join(''));
+  await r.git('add', '.');
+  const sizes = [];
+  const report = await r.run({ evaluate: async (request) => {
+    sizes.push(JSON.stringify(request).length);
+    assert(request.complete);
+    assert(request.evidence.every((part) => part.kind === 'patch'));
+    return { outcome: 'unclear', confidence: 0.99 };
+  } });
+  assert.equal(sizes.length, 2);
+  assert(sizes[1] > sizes[0]);
+  assert.equal(report.status, 'incomplete');
 });

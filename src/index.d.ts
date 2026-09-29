@@ -12,6 +12,7 @@ export type JudgeRequest = {
   rule: string;
   evidence: Evidence[];
   focusPaths: string[];
+  /** All diff hunks are present; this does not imply whole-file context. */
   complete: boolean;
   unresolved: string[];
 };

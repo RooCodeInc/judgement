@@ -177,6 +177,8 @@ async function run(options, result, signal, stopped) {
         v: PROTOCOL_VERSION,
         backend: cacheIdentity,
         searchTree,
+        focusBlobs: snap.changes.filter((change) => request.focusPaths.includes(change.path))
+          .map(({ oldOid, oid }) => ({ oldOid, oid })),
         request,
       }),
     );
@@ -237,18 +239,13 @@ async function run(options, result, signal, stopped) {
     return promise;
   };
 
-  const evidenceFor = async (change) => {
+  const evidenceFor = async (change, lines = 12) => {
     const evidence = [];
     if (
       (change.mode !== '000000' && !regular(change.mode)) ||
       (change.oldMode !== '000000' && !regular(change.oldMode))
     )
       return null;
-    if (change.mode !== '000000') {
-      const parts = await load(change.path);
-      if (!parts) return null;
-      evidence.push(...parts.map((part) => ({ ...part, kind: 'after' })));
-    }
     for await (const chunk of textChunks(
       snap,
       [
@@ -257,7 +254,7 @@ async function run(options, result, signal, stopped) {
         '--no-textconv',
         '--no-color',
         '--no-renames',
-        '--unified=12',
+        `--unified=${lines}`,
         snap.base,
         snap.tree,
         '--',
@@ -383,7 +380,35 @@ async function run(options, result, signal, stopped) {
                     unresolved: contextUnresolved,
                   };
                   if (bytes(request) <= MAX_EVIDENCE_BYTES) {
-                    consume(await ask(request, criterion.id), request);
+                    let answer = await ask(request, criterion.id);
+                    const uncertain = answer.outcome === 'unclear' ||
+                      answer.confidence < criterion.threshold;
+                    if (uncertain && !options.dryRun) {
+                      // Expand only when needed; keep every hunk in either request.
+                      const parts = change.mode === '000000' ? null : await load(change.path);
+                      let expanded = parts && {
+                        ...request,
+                        evidence: [...request.evidence, ...parts.map((part) => ({ ...part, kind: 'after' }))],
+                      };
+                      if (!expanded || bytes(expanded) > MAX_EVIDENCE_BYTES) {
+                        const wider = await evidenceFor(change, 80);
+                        expanded = wider && {
+                          ...request,
+                          evidence: [...wider, ...context.filter((part) => part.path !== change.path)],
+                        };
+                      }
+                      if (expanded && bytes(expanded) <= MAX_EVIDENCE_BYTES &&
+                          JSON.stringify(expanded.evidence) !== JSON.stringify(request.evidence)) {
+                        trace(`expanding context: ${JSON.stringify(criterion.id)} ${JSON.stringify(change.path)}`);
+                        answer = await ask(expanded, criterion.id);
+                        consume(answer, expanded);
+                      } else {
+                        trace(`context expansion cannot fit or adds no evidence: ${JSON.stringify(change.path)}`);
+                        consume(answer, request);
+                      }
+                    } else {
+                      consume(answer, request);
+                    }
                   } else {
                     record.unresolved.push(
                       `Evidence exceeds the file budget: ${change.path}`,

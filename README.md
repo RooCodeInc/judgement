@@ -121,8 +121,14 @@ convention file explicitly when the rule needs it. Repository-wide inventories,
 uniqueness, parity, and aggregate rules are outside v1's supported scope; the
 model is instructed to return unclear for them.
 
+Checks start with every diff hunk and 12 nearby unchanged lines, plus explicit
+`context` files. A small edit to a large file can finish in one request. If the
+answer is unclear or below the confidence threshold, Judgement tries the full
+staged file; if that will not fit, it tries 80 lines around every hunk. Expansion
+uses at most one additional model request, within the same execution deadline.
+
 Large commits run file checks in parallel with bounded concurrency. Oversized
-file evidence is screened in bounded chunks. Every text chunk is visited in a
+diffs or explicit context are screened in bounded chunks. Every text chunk is visited in a
 completed run; the middle is never discarded. Partial screens can identify a
 direct violation but **cannot approve the full file**. Evidence that cannot fit
 together remains incomplete, even when all of its screens return pass.
@@ -137,7 +143,7 @@ patches. Binary files, symlinks, and submodules are reported as unsupported when
 an applicable rule needs them. No silent approval of unsupported content.
 
 Raw judgments are cached in Git metadata by model/backend identity, rule,
-algorithm version, and exact evidence. Planning runs again on every snapshot;
+algorithm version, exact evidence, and the changed file’s before/after blob identities. Planning runs again on every snapshot;
 unresolved context also depends on the tree identity. Incomplete answers and
 service failures are not cached as approvals. Use `--no-cache` in required CI if
 cache provenance is not trusted.
