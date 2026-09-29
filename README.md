@@ -35,7 +35,7 @@ Node 22.20+ or 24+ and Git are required. Glob matching uses the small `picomatch
 Install the published package from npm.
 
 ```sh
-npm install --save-dev --save-exact @roo-code/judgement@0.2.0
+npm install --save-dev --save-exact @roo-code/judgement@0.3.0
 export TYPESAFE_API_KEY=...
 ./node_modules/.bin/judgement check --staged
 ```
