@@ -6,12 +6,18 @@ import {
   formatReport,
   calibrate,
   formatCalibrationReport,
+  testRules,
+  calibrateRules,
+  exampleSuiteExitCode,
+  formatExampleSuite,
 } from './index.js';
 
 try {
   const { values, positionals } = parseArgs({
     allowPositionals: true,
     options: {
+      all: { type: 'boolean' },
+      'examples-dir': { type: 'string' },
       rule: { type: 'string' },
       examples: { type: 'string' },
       repeats: { type: 'string' },
@@ -34,9 +40,9 @@ try {
   });
   if (values.help) {
     console.log(
-      'judgement check [--staged [--hook] | --base <commit> --head <commit>] [--dry-run] [--format json] [--timeout-ms <ms>] [--no-cache] [--advisory] [--verbose]\nReads .judgement/rules.json from the base tree. Hooks allow incomplete checks after 3 seconds; strict checks exit 3.\njudgement calibrate --rule <id> [--examples <path>] [--repeats 3] [--thresholds 0.8,0.85,0.9,0.95] [--concurrency 2] [--timeout-ms 3000] [--dry-run] [--format json] [--verbose]\nCalibration reads the working-tree policy and .judgement/examples/<id>.json; it never edits your policy or index.',
+      'judgement check [--staged [--hook] | --base <commit> --head <commit>] [--dry-run] [--format json] [--timeout-ms <ms>] [--no-cache] [--advisory] [--verbose]\nReads .judgement/rules.json from the base tree. Hooks allow incomplete checks after 3 seconds; strict checks exit 3.\njudgement test [--rule <id>] [--examples-dir <path>] [--repeats 3] [--dry-run] [--format json]\njudgement calibrate (--rule <id> | --all) [--examples <path>] [--repeats 3] [--thresholds 0.8,0.85,0.9,0.95] [--concurrency 2] [--timeout-ms 3000] [--dry-run] [--format json] [--verbose]\nCalibration reads the working-tree policy and .judgement/examples/<id>.json; it never edits your policy or index.',
     );
-  } else if (positionals[0] === 'calibrate') {
+  } else if (['calibrate', 'test'].includes(positionals[0])) {
     if (
       positionals.length !== 1 ||
       values.staged ||
@@ -44,6 +50,9 @@ try {
       values.head ||
       values.hook ||
       values.advisory ||
+      (values.all && values.rule) ||
+      (values.examples && values['examples-dir']) ||
+      (positionals[0] === 'test' && values.thresholds !== undefined) ||
       (values.format && !['json', 'text'].includes(values.format))
     )
       throw new Error('Invalid calibration arguments. Use --help.');
@@ -52,9 +61,19 @@ try {
     const controller = new AbortController();
     const interrupt = () => controller.abort();
     process.once('SIGINT', interrupt);
+    const suite = positionals[0] === 'test' || values.all;
+    const run =
+      positionals[0] === 'test'
+        ? testRules
+        : values.all
+          ? calibrateRules
+          : calibrate;
+    if (values['examples-dir'] && !suite)
+      throw new Error('--examples-dir requires test or calibrate --all.');
     let report;
     try {
-      report = await calibrate({
+      report = await run({
+        examplesDirectory: values['examples-dir'],
         signal: controller.signal,
         cwd: values.cwd,
         ruleId: values.rule,
@@ -82,11 +101,19 @@ try {
     console.log(
       values.format === 'json'
         ? JSON.stringify(report)
-        : formatCalibrationReport(report),
+        : suite
+          ? formatExampleSuite(report)
+          : formatCalibrationReport(report),
     );
-    process.exitCode = report.dryRun || report.recommendation !== null ? 0 : 3;
+    process.exitCode = suite
+      ? exampleSuiteExitCode(report)
+      : report.dryRun || report.recommendation !== null
+        ? 0
+        : 3;
   } else {
     if (
+      values.all ||
+      values['examples-dir'] ||
       values.rule ||
       values.examples ||
       values.repeats ||

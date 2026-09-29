@@ -23,6 +23,12 @@ Save this as `.judgement/rules.json` in your repository. Run Judgement before a 
 or in CI. It uses [Jev](https://typesafe.ai) to make focused judgments and reads
 related source files from the exact Git snapshot being checked.
 
+## Agent instructions
+
+Coding agents: read [the agent guide](docs/agents.md) before adding or tuning rules.
+It is included in the npm package and covers fixtures, commands, uncertainty, and
+validation. Projects should keep their rules and examples, not copy the runner.
+
 ## Install
 
 Node 22.20+ or 24+ and Git are required. Glob matching uses the small `picomatch` dependency.
@@ -72,12 +78,12 @@ PR, resolve the merge base explicitly and pass its SHA. Checkout full history.
 Use policy from a trusted base and provide the API key through CI secrets.
 Run untrusted contributions without write-capable repository tokens.
 
-| Exit | Strict check | `--hook` |
-| --- | --- | --- |
-| 0 | Completed without a blocking finding | Completed or explicitly incomplete |
-| 1 | Confirmed violation | Confirmed violation |
-| 2 | Invalid configuration or invocation | Invalid configuration or invocation |
-| 3 | Incomplete, uncertain, service/Git failure | Reported, commit allowed |
+| Exit | Strict check                               | `--hook`                            |
+| ---- | ------------------------------------------ | ----------------------------------- |
+| 0    | Completed without a blocking finding       | Completed or explicitly incomplete  |
+| 1    | Confirmed violation                        | Confirmed violation                 |
+| 2    | Invalid configuration or invocation        | Invalid configuration or invocation |
+| 3    | Incomplete, uncertain, service/Git failure | Reported, commit allowed            |
 
 `--advisory` reports all outcomes without blocking. `--timeout-ms` changes the
 budget (strict mode defaults to 120 seconds). Use JSON `status` to distinguish
@@ -123,6 +129,31 @@ Policy files and `.judgement/examples/` are excluded from normal rule checks, so
 labeled counterexamples do not trigger your commit hook.
 `.judgement/rules.json` is the only policy location. File and context globs remain
 relative to the repository root.
+
+## Test all rules
+
+```sh
+judgement test --dry-run
+judgement test --rule wording --repeats 3
+judgement test --format json > /tmp/judgement-tests.json
+judgement calibrate --all --format json > /tmp/judgement-calibration.json
+```
+
+`test` uses configured thresholds; a wrong, incomplete, or failed judgment exits
+
+1. Dry runs and suites whose results all match their labels exit 0. Setup errors
+   exit 2. `calibrate --all` compares candidates for every rule and exits 3 if any rule
+   has no recommendation. Both commands require examples for every selected rule;
+   missing or invalid examples fail before inference. Use `--examples-dir <path>` for
+   a separate suite. Rules run sequentially, with bounded fixture concurrency within
+   each rule. JSON suite reports include hashes of the normalized policy and exact
+   fixture text used. Keep generated output local or in CI artifacts.
+
+The library exposes `testRules(options)`, `calibrateRules(options)`,
+`formatExampleSuite(report)`, and `exampleSuiteExitCode(report)`. Options include
+an optional `ruleId` (omitting it selects all rules), `examplesDirectory`, and the
+same custom `evaluate` callback used by `calibrate`. `testRules` always uses the
+configured thresholds. This keeps project-specific inference adapters small.
 
 ## Calibration command
 
@@ -242,6 +273,7 @@ for the distinction. The default `0.85` is a starting point, not a universal cut
    backend/model version, outcomes, confidence scores, final statuses, and time.
    Avoid concurrent checks against the same index; use separate fixtures or
    run their repetitions sequentially.
+
 4. **Compare candidate thresholds.** Count violations that would block, valid
    changes that would incorrectly block, and incomplete checks in each group.
    Also track outright incorrect passes. A valid change reported as incomplete
@@ -252,21 +284,6 @@ for the distinction. The default `0.85` is a starting point, not a universal cut
    context expansion and a different answer. Check final reports, held-out
    examples, and hook deadlines before adopting it. Recalibrate after changing
    the rule wording, evidence selection, model, or backend.
-
-For example, a wording-rule calibration used 14 labeled changes with three runs
-per change. Initial diff-only scores gave this comparison:
-
-| Threshold | Violation runs that would block | Valid runs that would incorrectly block |
-| --- | --- | --- |
-| 0.96 | 14/18 | 0/24 |
-| 0.90 | 17/18 | 0/24 |
-| 0.85 | 18/18 | 0/24 |
-
-The full checker at `0.85` then blocked all 18 violation runs, with no false
-blocks across 24 valid runs. However, 12 valid runs remained incomplete. That
-supported lowering the threshold for this wording rule, while also revealing
-uncertainty around permitted exceptions. These are observations from a small
-sample, not an accuracy guarantee or a recommended threshold for every rule.
 
 The same threshold applies to `pass`, `not_applicable`, and `violation` answers.
 An answer below the threshold remains incomplete; `unclear` remains incomplete
@@ -350,9 +367,15 @@ Judgement's library report:
 import { fail, warn } from 'danger';
 import { check, formatReport } from '@roo-code/judgement';
 
-if (!process.env.REVIEW_BASE) throw new Error('Set REVIEW_BASE to the trusted base SHA');
-const report = await check({ base: process.env.REVIEW_BASE, head: 'HEAD', cache: false });
-if (report.status === 'violation' || report.status === 'invalid') fail(formatReport(report));
+if (!process.env.REVIEW_BASE)
+  throw new Error('Set REVIEW_BASE to the trusted base SHA');
+const report = await check({
+  base: process.env.REVIEW_BASE,
+  head: 'HEAD',
+  cache: false,
+});
+if (report.status === 'violation' || report.status === 'invalid')
+  fail(formatReport(report));
 else if (report.status === 'incomplete') warn(formatReport(report));
 ```
 

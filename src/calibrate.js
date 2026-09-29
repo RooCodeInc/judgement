@@ -24,7 +24,7 @@ const text = (value) => typeof value === 'string' && !value.includes('\0');
 const fail = (message) => {
   throw new ConfigurationError(message);
 };
-const safePath = (path) => {
+export const safePath = (path) => {
   if (
     !text(path) ||
     !path ||
@@ -48,7 +48,7 @@ const safePath = (path) => {
     );
 };
 
-function examplesFrom(value, criterion) {
+export function examplesFrom(value, criterion) {
   if (
     !object(value) ||
     !keys(value, ['ruleId', 'examples']) ||

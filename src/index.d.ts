@@ -172,3 +172,24 @@ export function calibrate(
   options: CalibrationOptions,
 ): Promise<CalibrationReport>;
 export function formatCalibrationReport(report: CalibrationReport): string;
+
+export type ExampleSuiteOptions = Omit<CalibrationOptions, 'ruleId'> & {
+  ruleId?: string;
+  examplesDirectory?: string;
+};
+export type ExampleSuiteReport = {
+  mode: 'test' | 'calibrate';
+  status: 'pass' | 'fail' | 'dry-run';
+  /** SHA-256 of the normalized policy used for all checks. */
+  policySha256: string;
+  fixtureSha256: Record<string, string>;
+  reports: CalibrationReport[];
+};
+export function testRules(
+  options?: Omit<ExampleSuiteOptions, 'thresholds'>,
+): Promise<ExampleSuiteReport>;
+export function calibrateRules(
+  options?: ExampleSuiteOptions,
+): Promise<ExampleSuiteReport>;
+export function exampleSuiteExitCode(report: ExampleSuiteReport): number;
+export function formatExampleSuite(report: ExampleSuiteReport): string;

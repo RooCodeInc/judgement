@@ -12,3 +12,10 @@ export { parsePolicy, matches, ConfigurationError } from './policy.js';
 export { installGitHook } from './hooks.js';
 
 export { calibrate, formatCalibrationReport } from './calibrate.js';
+
+export {
+  testRules,
+  calibrateRules,
+  exampleSuiteExitCode,
+  formatExampleSuite,
+} from './examples.js';

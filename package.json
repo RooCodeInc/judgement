@@ -21,7 +21,8 @@
     "README.md",
     "LICENSE",
     "examples",
-    ".pre-commit-hooks.yaml"
+    ".pre-commit-hooks.yaml",
+    "docs"
   ],
   "scripts": {
     "test": "node --test test/*.test.js",
