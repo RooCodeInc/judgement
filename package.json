@@ -1,5 +1,5 @@
 {
-  "name": "@roocodeinc/judgement",
+  "name": "@roo-code/judgement",
   "version": "0.1.3",
   "description": "Fast Git checks for plain-language business rules, powered by Jev",
   "type": "module",

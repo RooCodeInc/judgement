@@ -28,7 +28,7 @@ Node 22.20+ or 24+ and Git are required. There are no runtime npm dependencies.
 Install the published package from npm.
 
 ```sh
-npm install --save-dev --save-exact @roocodeinc/judgement@0.1.3
+npm install --save-dev --save-exact @roo-code/judgement@0.1.3
 export TYPESAFE_API_KEY=...
 ./node_modules/.bin/judgement check --staged
 ```
@@ -139,7 +139,7 @@ cache provenance is not trusted.
 ## Library and custom backends
 
 ```js
-import { check, exitCode, formatReport } from '@roocodeinc/judgement';
+import { check, exitCode, formatReport } from '@roo-code/judgement';
 
 const report = await check({ cwd: process.cwd(), hook: true });
 console.log(formatReport(report));
@@ -167,7 +167,7 @@ Judgement's library report:
 
 ```js
 import { fail, warn } from 'danger';
-import { check, formatReport } from '@roocodeinc/judgement';
+import { check, formatReport } from '@roo-code/judgement';
 
 if (!process.env.REVIEW_BASE) throw new Error('Set REVIEW_BASE to the trusted base SHA');
 const report = await check({ base: process.env.REVIEW_BASE, head: 'HEAD', cache: false });
