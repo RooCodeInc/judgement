@@ -1,10 +1,4 @@
-export type Outcome =
-  | 'pass'
-  | 'violation'
-  | 'unclear'
-  | 'not_applicable'
-  | 'local'
-  | 'global';
+export type Outcome = 'pass' | 'violation' | 'unclear' | 'not_applicable';
 export type Answer = { outcome: Outcome; confidence: number };
 export type Evidence = {
   path: string;
@@ -13,16 +7,14 @@ export type Evidence = {
   text: string;
   oid?: string;
 };
-export type JudgeRequest =
-  | { kind: 'strategy'; rule: string }
-  | {
-      kind: 'judge';
-      rule: string;
-      evidence: Evidence[];
-      focusPaths: string[];
-      complete: boolean;
-      unresolved: string[];
-    };
+export type JudgeRequest = {
+  kind: 'judge';
+  rule: string;
+  evidence: Evidence[];
+  focusPaths: string[];
+  complete: boolean;
+  unresolved: string[];
+};
 export type Criterion = {
   id: string;
   rule: string;

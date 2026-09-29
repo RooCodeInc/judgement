@@ -81,8 +81,8 @@ test('an unstaged violation does not contaminate the staged snapshot', async (t)
   );
 });
 
-test('whole-change packet connects multiple changed files and unchanged imported helpers', async (t) => {
-  const r = await repo(t);
+test('each changed file receives explicitly selected supporting context', async (t) => {
+  const r = await repo(t, [{ ...rule, context: ['audit.js'] }]);
   await r.put('audit.js', 'export const record = () => auditEvent();\n');
   await r.git('add', '.');
   await r.git('commit', '-qm', 'helper');
@@ -96,7 +96,8 @@ test('whole-change packet connects multiple changed files and unchanged imported
   const result = await r.run({
     evaluate: async (request) => {
       calls++;
-      assert.deepEqual(request.focusPaths.sort(), ['billing.js', 'other.js']);
+      assert.equal(request.focusPaths.length, 1);
+      assert(['billing.js', 'other.js'].includes(request.focusPaths[0]));
       assert(
         request.evidence.some(
           (part) => part.path === 'audit.js' && part.kind === 'context',
@@ -106,7 +107,7 @@ test('whole-change packet connects multiple changed files and unchanged imported
     },
   });
   assert.equal(result.status, 'pass');
-  assert.equal(calls, 1);
+  assert.equal(calls, 2);
 });
 
 test('policy edits do not weaken their own check and are never restored', async (t) => {
@@ -169,8 +170,6 @@ test('large file visits its middle and cannot pass from partial screens', async 
   let middle = false;
   const report = await r.run({
     evaluate: async (request) => {
-      if (request.kind === 'strategy')
-        return { outcome: 'global', confidence: 0.99 };
       if (JSON.stringify(request.evidence).includes('VIOLATION_IN_MIDDLE')) {
         middle = true;
         return bad();
@@ -181,31 +180,12 @@ test('large file visits its middle and cannot pass from partial screens', async 
   assert(middle);
   assert.equal(report.status, 'violation');
   const clean = await r.run({
-    evaluate: async (request) =>
-      request.kind === 'strategy'
-        ? { outcome: 'global', confidence: 0.99 }
-        : pass(),
+    evaluate: pass,
   });
   assert.equal(clean.status, 'incomplete');
 });
 
-test('large global rule never becomes an AND of file passes', async (t) => {
-  const r = await repo(t);
-  for (let i = 0; i < 8; i++)
-    await r.put(`file${i}.js`, 'large changed content\n'.repeat(300));
-  await r.git('add', '.');
-  const report = await r.run({
-    evaluate: async (request) =>
-      request.kind === 'strategy'
-        ? { outcome: 'global', confidence: 0.99 }
-        : pass(),
-  });
-  assert.equal(report.status, 'incomplete');
-  assert.equal(exitCode(report), 3);
-  assert.equal(exitCode(report, { hook: true }), 0);
-});
-
-test('local interpretation evaluates every changed file without losing the final violation', async (t) => {
+test('file checks evaluate every changed file without losing the final violation', async (t) => {
   const r = await repo(t);
   for (let i = 0; i < 6; i++)
     await r.put(`file${i}.js`, 'large changed content\n'.repeat(150));
@@ -213,8 +193,6 @@ test('local interpretation evaluates every changed file without losing the final
   const seen = new Set();
   const report = await r.run({
     evaluate: async (request) => {
-      if (request.kind === 'strategy')
-        return { outcome: 'local', confidence: 0.99 };
       request.focusPaths.forEach((path) => seen.add(path));
       return request.focusPaths.includes('file5.js') ? bad() : pass();
     },
@@ -293,7 +271,7 @@ test('caches exact evidence and invalidates when unchanged context changes', asy
   await r.put('audit.js', 'new helper');
   await r.git('add', '.');
   await r.run(options);
-  assert.equal(calls, 2);
+  assert.equal(calls, 3);
 });
 
 test('respects alternate index and unusual filenames', async (t) => {
@@ -330,7 +308,14 @@ test('validates policies and API answers', async () => {
     parsePolicy('{"criteria":[{"rule":"hi","unknown":true}]}'),
   );
   await assert.rejects(
-    createJevEvaluator({ apiKey: '' })({ kind: 'strategy', rule: 'hello' }),
+    createJevEvaluator({ apiKey: '' })({
+      kind: 'judge',
+      rule: 'hello',
+      evidence: [],
+      focusPaths: [],
+      complete: true,
+      unresolved: [],
+    }),
     /API key/,
   );
 });
@@ -346,4 +331,46 @@ test('missing explicitly required context cannot produce a pass', async (t) => {
   await r.put('billing.js', 'change');
   await r.git('add', '.');
   assert.equal((await r.run()).status, 'incomplete');
+});
+
+test('large commits bound model concurrency and keep every file obligation', async (t) => {
+  const r = await repo(t);
+  for (let i = 0; i < 24; i++) await r.put(`part-${i}.js`, 'changed\n');
+  await r.git('add', '.');
+  let active = 0,
+    peak = 0;
+  const seen = new Set();
+  const report = await r.run({
+    concurrency: 3,
+    evaluate: async (request) => {
+      active++;
+      peak = Math.max(peak, active);
+      request.focusPaths.forEach((path) => seen.add(path));
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      active--;
+      return pass();
+    },
+  });
+  assert.equal(report.status, 'pass');
+  assert.equal(seen.size, 24);
+  assert(peak <= 3);
+  assert(peak > 1);
+});
+
+test('explicit context comes from the index, including partially staged helpers', async (t) => {
+  const r = await repo(t, [
+    { ...rule, files: ['billing.js'], context: ['audit.js'] },
+  ]);
+  await r.put('billing.js', 'changed');
+  await r.put('audit.js', 'STAGED_HELPER');
+  await r.git('add', '.');
+  await r.put('audit.js', 'UNSTAGED_HELPER');
+  const result = await r.run({
+    evaluate: async (request) => {
+      assert.match(JSON.stringify(request.evidence), /STAGED_HELPER/);
+      assert.doesNotMatch(JSON.stringify(request.evidence), /UNSTAGED_HELPER/);
+      return pass();
+    },
+  });
+  assert.equal(result.status, 'pass');
 });

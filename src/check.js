@@ -6,7 +6,6 @@ import {
   git,
   hash,
   head,
-  importPaths,
   inventory,
   policyBlob,
   snapshot,
@@ -279,70 +278,26 @@ async function run(options, result, signal, stopped) {
             record.status = 'not_applicable';
             return;
           }
-          const units = [];
-          for (const change of changes) {
-            const evidence = await evidenceFor(change);
-            signal.throwIfAborted();
-            if (!evidence) {
-              record.unresolved.push(`Unsupported content: ${change.path}`);
-              if (!result.coverage.unsupported.includes(change.path))
-                result.coverage.unsupported.push(change.path);
-            } else units.push({ path: change.path, evidence });
-          }
-          const related = new Map(),
-            unresolved = new Set();
+          // Every matching file is an independent obligation. Context is explicit;
+          // v1 does not reinterpret global rules as a collection of file checks.
+          const context = [];
+          const contextPaths = new Set();
           for (const pattern of criterion.context ?? []) {
             const paths = [...files.keys()].filter((path) =>
               matches(path, [pattern]),
             );
-            if (!paths.length) {
-              unresolved.add(`Context pattern matched no files: ${pattern}`);
+            if (!paths.length)
               record.unresolved.push(
                 `Context pattern matched no files: ${pattern}`,
               );
-            }
-            for (const path of paths) related.set(path, true);
+            for (const path of paths) contextPaths.add(path);
           }
-          // Two deterministic dependency hops; do not read the working tree or execute repository code.
-          let frontier = units.flatMap((unit) =>
-            unit.evidence.filter((part) => part.kind === 'after'),
-          );
-          for (let depth = 0; depth < 2; depth++) {
-            const next = [];
-            for (const part of frontier) {
-              const imports = importPaths(part.path, part.text, files);
-              for (const name of imports.unresolved)
-                unresolved.add(`${part.path}: unresolved import ${name}`);
-              for (const path of imports.found)
-                if (!related.has(path)) {
-                  related.set(path, true);
-                  const parts = await load(path);
-                  if (parts) next.push(...parts);
-                }
-            }
-            frontier = next;
-          }
-          const changedPaths = new Set(units.map((unit) => unit.path));
-          const context = [];
-          for (const path of related.keys()) {
-            if (changedPaths.has(path)) continue;
+          for (const path of contextPaths) {
             const parts = await load(path);
             if (!parts) record.unresolved.push(`Unsupported context: ${path}`);
             else context.push(...parts);
           }
-          const makeRequest = (evidence, focusPaths, complete) => ({
-            kind: 'judge',
-            rule: criterion.rule,
-            evidence,
-            focusPaths,
-            complete,
-            unresolved: [...unresolved],
-          });
-          const whole = makeRequest(
-            [...units.flatMap((unit) => unit.evidence), ...context],
-            units.map((unit) => unit.path),
-            true,
-          );
+          const contextUnresolved = [...record.unresolved];
           const consume = (answer, request) => {
             if (
               answer.outcome === 'violation' &&
@@ -362,69 +317,72 @@ async function run(options, result, signal, stopped) {
               answer.outcome === 'unclear' ||
               answer.confidence < criterion.threshold ||
               answer.outcome === 'violation'
-            )
+            ) {
               record.unresolved.push(
                 `More evidence needed: ${request.focusPaths.join(', ')}`,
               );
+            }
           };
-          if (bytes(whole) <= MAX_EVIDENCE_BYTES) {
-            consume(await ask(whole), whole);
-          } else {
-            const strategy = await ask({
-              kind: 'strategy',
-              rule: criterion.rule,
-            });
-            // A conservative model interpretation; never a generic AND/OR over chunk verdicts.
-            const local =
-              strategy.outcome === 'local' && strategy.confidence >= 0.95;
-            if (!local)
-              record.unresolved.push(
-                'The whole-change relationship exceeds the evidence budget.',
-              );
-            await Promise.all(
-              units.map(async (unit) => {
-                signal.throwIfAborted();
-                // Include all changed dependency files as well as unchanged dependencies.
-                // Include every changed related file collected by the bounded dependency walk.
-                const dependencyPaths = new Set(related.keys());
-                const linked = units
-                  .filter(
-                    (other) =>
-                      other.path !== unit.path &&
-                      dependencyPaths.has(other.path),
-                  )
-                  .flatMap((other) => other.evidence);
-                const request = makeRequest(
-                  [...unit.evidence, ...linked, ...context],
-                  [unit.path],
-                  local,
-                );
-                if (local && bytes(request) <= MAX_EVIDENCE_BYTES)
-                  consume(await ask(request), request);
-                else {
-                  record.unresolved.push(
-                    `Evidence requires a larger relationship check: ${unit.path}`,
-                  );
-                  // Visit every source/patch chunk. Screens may find direct violations but cannot approve the rule.
-                  for (const part of [
-                    ...unit.evidence,
-                    ...linked,
-                    ...context,
-                  ]) {
-                    const screen = makeRequest([part], [unit.path], false);
-                    if (bytes(screen) > MAX_EVIDENCE_BYTES) {
-                      record.unresolved.push(
-                        'Rule or source metadata exceeds the request budget.',
-                      );
-                      continue;
-                    }
-                    consume(await ask(screen), screen);
-                    await setImmediate();
+          const fileLimit = pool(options.concurrency ?? 8);
+          await Promise.all(
+            changes.map((change) =>
+              fileLimit(async () => {
+                try {
+                  signal.throwIfAborted();
+                  const evidence = await evidenceFor(change);
+                  signal.throwIfAborted();
+                  if (!evidence) {
+                    record.unresolved.push(
+                      `Unsupported content: ${change.path}`,
+                    );
+                    if (!result.coverage.unsupported.includes(change.path))
+                      result.coverage.unsupported.push(change.path);
+                    return;
                   }
+                  const request = {
+                    kind: 'judge',
+                    rule: criterion.rule,
+                    evidence: [
+                      ...evidence,
+                      ...context.filter((part) => part.path !== change.path),
+                    ],
+                    focusPaths: [change.path],
+                    complete: true,
+                    unresolved: contextUnresolved,
+                  };
+                  if (bytes(request) <= MAX_EVIDENCE_BYTES) {
+                    consume(await ask(request), request);
+                  } else {
+                    record.unresolved.push(
+                      `Evidence exceeds the file budget: ${change.path}`,
+                    );
+                    // Screens visit every chunk and can establish direct violations.
+                    // Even unanimous passes cannot approve a file split across requests.
+                    for (const part of request.evidence) {
+                      const screen = {
+                        ...request,
+                        evidence: [part],
+                        complete: false,
+                      };
+                      if (bytes(screen) > MAX_EVIDENCE_BYTES) {
+                        record.unresolved.push(
+                          'Rule or source metadata exceeds the request budget.',
+                        );
+                        continue;
+                      }
+                      consume(await ask(screen), screen);
+                      await setImmediate();
+                    }
+                  }
+                } catch {
+                  if (!stopped())
+                    record.unresolved.push(
+                      `Evidence collection or judgment failed: ${change.path}`,
+                    );
                 }
               }),
-            );
-          }
+            ),
+          );
           signal.throwIfAborted();
           if (stopped()) return;
           record.status = record.findings.length

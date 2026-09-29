@@ -28,7 +28,7 @@ Node 22.20+ or 24+ and Git are required. There are no runtime npm dependencies.
 The package is distributed from this repository; it is not yet published to npm.
 
 ```sh
-npm install --save-dev https://github.com/RooCodeInc/judgement/archive/refs/tags/v0.1.0.tar.gz
+npm install --save-dev https://github.com/RooCodeInc/judgement/archive/refs/tags/v0.1.1.tar.gz
 export TYPESAFE_API_KEY=...
 ./node_modules/.bin/judgement check --staged
 ```
@@ -54,7 +54,7 @@ A required CI check must finish that work before merging. Judgement does not
 schedule a background check or configure branch protection for you.
 
 For the [pre-commit framework](https://pre-commit.com), use this repository's
-`.pre-commit-hooks.yaml` with `rev: v0.1.0` and hook `id: judgement`.
+`.pre-commit-hooks.yaml` with `rev: v0.1.1` and hook `id: judgement`.
 
 ## CI and strict checks
 
@@ -89,7 +89,7 @@ incomplete hook runs from completed ones. `--dry-run` sends no model requests.
 - `id`: optional unique identifier for reports.
 - `files`: optional repository-relative globs selecting changes that activate
   the rule. Other files can still be supporting evidence.
-- `context`: optional repository-relative globs adding unchanged source files.
+- `context`: optional repository-relative globs adding supporting source files from the proposed snapshot.
 - `threshold`: confidence cutoff between 0 and 1; defaults to 0.85. It is not a
   measured probability that the change is correct.
 
@@ -108,23 +108,23 @@ used by `git commit -a` and path commits. It reads staged blobs rather than thei
 working-tree counterparts, preserving partially staged work. The final index is
 checked again before a clean result is accepted.
 
-Small changes and their context are evaluated together. For larger changes,
-a conservative model decision determines whether the rule can be checked for
-every affected file independently with related evidence. Each such check still
-covers all operations in that file. Global, existential, parity, and aggregate
-rules are not reduced to independent passes.
+Each matching changed file is evaluated independently with the supporting files
+selected by `context`. Write localized rules: UI wording, use of a shared
+component, or a guard around an operation in that file. Supply the helper or
+convention file explicitly when the rule needs it. Repository-wide inventories,
+uniqueness, parity, and aggregate rules are outside v1's supported scope; the
+model is instructed to return unclear for them.
 
-Oversized evidence is screened in bounded chunks. Every text chunk is visited
-in a completed run; the middle is never discarded. Partial screens can identify
-a direct violation but **cannot approve the full rule**. A relationship that
-cannot be assembled within the model's context limit remains incomplete.
+Large commits run file checks in parallel with bounded concurrency. Oversized
+file evidence is screened in bounded chunks. Every text chunk is visited in a
+completed run; the middle is never discarded. Partial screens can identify a
+direct violation but **cannot approve the full file**. Evidence that cannot fit
+together remains incomplete, even when all of its screens return pass.
 
-The initial context collector follows relative JS/TS imports for two hops and
-reads `context` globs. It does not build a universal call graph, understand every
-path alias, or search external systems. Use context globs for authorization
-wrappers, provider registries, tests, and other relevant files. Missing or
-ambiguous evidence should produce an incomplete judgment. Model decisions,
-including the independent-file interpretation, remain probabilistic.
+There is no automatic import traversal, repository search, or hierarchical
+summarization in v1. Context selection stays explicit and predictable. Missing
+context patterns make a check incomplete. Model judgments remain probabilistic;
+a localized rule can still require more evidence than the supplied files.
 
 Renames are represented as deletion plus addition. Deleted text is included in
 patches. Binary files, symlinks, and submodules are reported as unsupported when
@@ -132,7 +132,7 @@ an applicable rule needs them. No silent approval of unsupported content.
 
 Raw judgments are cached in Git metadata by model/backend identity, rule,
 algorithm version, and exact evidence. Planning runs again on every snapshot;
-negative import lookups also depend on the tree identity. Incomplete answers and
+unresolved context also depends on the tree identity. Incomplete answers and
 service failures are not cached as approvals. Use `--no-cache` in required CI if
 cache provenance is not trusted.
 
@@ -169,6 +169,7 @@ Judgement's library report:
 import { fail, warn } from 'danger';
 import { check, formatReport } from '@roocodeinc/judgement';
 
+if (!process.env.REVIEW_BASE) throw new Error('Set REVIEW_BASE to the trusted base SHA');
 const report = await check({ base: process.env.REVIEW_BASE, head: 'HEAD', cache: false });
 if (report.status === 'violation' || report.status === 'invalid') fail(formatReport(report));
 else if (report.status === 'incomplete') warn(formatReport(report));

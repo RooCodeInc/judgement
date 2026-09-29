@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { isAbsolute, posix, resolve } from 'node:path';
+import { resolve } from 'node:path';
 
 export function hash(value) {
   return createHash('sha256').update(value).digest('hex');
@@ -228,28 +228,4 @@ export async function blobParts(snap, path, oid, kind, signal) {
     result.push({ path, oid, kind, line: chunk.line, text: chunk.text });
   }
   return result;
-}
-
-export function importPaths(path, text, files) {
-  const found = new Set(),
-    unresolved = new Set();
-  const pattern =
-    /(?:\bfrom\s*|\bimport\s*\(?\s*|\brequire\s*\(\s*)['"]([^'"]+)['"]/g;
-  for (const match of text.matchAll(pattern)) {
-    if (!match[1].startsWith('.')) continue;
-    const relative = posix.normalize(posix.join(posix.dirname(path), match[1]));
-    if (isAbsolute(relative) || relative.startsWith('../')) continue;
-    const candidates = [
-      relative,
-      ...['.ts', '.tsx', '.js', '.jsx', '.mjs', '.json'].map(
-        (ext) => relative + ext,
-      ),
-      ...['.ts', '.tsx', '.js', '.jsx'].map((ext) => relative + '/index' + ext),
-      relative.replace(/\.js$/, '.ts'),
-    ];
-    const target = candidates.find((candidate) => files.has(candidate));
-    if (target) found.add(target);
-    else unresolved.add(match[1]);
-  }
-  return { found, unresolved };
 }
