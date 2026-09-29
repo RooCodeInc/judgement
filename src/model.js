@@ -4,8 +4,8 @@ export const PROTOCOL_VERSION = 3;
 export const MAX_REQUEST_BYTES = 30_000;
 export const MAX_EVIDENCE_BYTES = 23_000;
 
-export function question(request) {
-  return {
+export function question(request, options = {}) {
+  const result = {
     type: 'choice',
     instructions: [
       'Evaluate the exact repository rule in `rule` for the changed file in focusPaths using only the source evidence supplied.',
@@ -28,6 +28,12 @@ export function question(request) {
       not_applicable: 'The rule does not apply to these changes.',
     },
   };
+  if (options.combineAcceptedOutcomes) {
+    result.criteria.pass =
+      'The supplied evidence supports the rule for every applicable operation, or the rule does not apply to these changes.';
+    delete result.criteria.not_applicable;
+  }
+  return result;
 }
 
 export function validateAnswer(answer, request) {

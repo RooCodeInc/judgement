@@ -237,6 +237,41 @@ console.log(formatCalibrationReport(report));
 
 The [wording example](examples/wording/.judgement/) includes a policy and fixtures.
 
+## Inspect example requests
+
+Use `prepareExamples` to load labeled fixtures into a model tester:
+
+```js
+import { prepareExamples, question } from '@roo-code/judgement';
+
+const prepared = await prepareExamples({ cwd: process.cwd(), ruleId: 'wording' });
+const example = prepared.examples[0];
+const packet = example.packets[0];
+// Send only packet.state and packet.questions to your inference backend.
+console.log(example.name, example.expected, example.threshold, packet.stage);
+```
+
+Preparation uses disposable Git repositories and the checker's evidence planner.
+It makes no inference calls and leaves the real index untouched. Packets include
+initial evidence, the expansion requested after an uncertain answer, and partial
+screens where needed. Expected labels remain outside model inputs. The output
+includes policy and fixture hashes for detecting stale presets. Options include
+`ruleId`, `examplesPath`, `examplesDirectory`, `deadlineMs` (30 seconds per example),
+and `signal`.
+
+Replay packets to inspect raw answers, confidence, probabilities, and latency.
+A packet answer is not a full check result: partial screens cannot approve a file,
+and unresolved context still prevents approval. Testers with longer timeouts also
+do not establish hook performance. Confirm improvements through `testRules` or
+`calibrate`, with held-out examples and the production deadline.
+
+For an explicit experiment, `question(packet.state, { combineAcceptedOutcomes:
+true })` combines compliant and inapplicable changes into the `pass` option.
+The default question keeps both options. This does not change normal checks;
+compare repeated observations before adopting a custom evaluator, and change its
+cache identity when changing its question. Summed answer probabilities are not a
+replacement for the model's confidence score.
+
 ## Calibrating a rule's confidence threshold
 
 Choose a threshold from labeled examples of your rule. Confidence measures how

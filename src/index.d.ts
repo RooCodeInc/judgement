@@ -81,7 +81,13 @@ export function exitCode(
 ): number;
 export function formatReport(report: Report): string;
 export function createJevEvaluator(options?: BackendOptions): Evaluator;
-export function question(request: JudgeRequest): {
+export function question(
+  request: JudgeRequest,
+  options?: {
+    /** Experimental: combine pass and not_applicable; default behavior is unchanged. */
+    combineAcceptedOutcomes?: boolean;
+  },
+): {
   type: 'choice';
   instructions: string;
   criteria: Record<string, string>;
@@ -193,3 +199,34 @@ export function calibrateRules(
 ): Promise<ExampleSuiteReport>;
 export function exampleSuiteExitCode(report: ExampleSuiteReport): number;
 export function formatExampleSuite(report: ExampleSuiteReport): string;
+
+export type PreparedExamplesOptions = Pick<
+  ExampleSuiteOptions,
+  | 'cwd'
+  | 'ruleId'
+  | 'examplesPath'
+  | 'examplesDirectory'
+  | 'deadlineMs'
+  | 'signal'
+>;
+export type PreparedExamplePacket = {
+  stage: 'initial' | 'expanded' | 'screen';
+  state: JudgeRequest;
+  questions: { result: ReturnType<typeof question> };
+};
+export type PreparedExamples = {
+  protocolVersion: number;
+  policySha256: string;
+  fixtureSha256: Record<string, string>;
+  examples: {
+    ruleId: string;
+    rule: string;
+    threshold: number;
+    name: string;
+    expected: 'pass' | 'violation';
+    packets: PreparedExamplePacket[];
+  }[];
+};
+export function prepareExamples(
+  options?: PreparedExamplesOptions,
+): Promise<PreparedExamples>;

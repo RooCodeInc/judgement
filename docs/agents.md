@@ -132,3 +132,19 @@ missing context, or every possible violation will be handled correctly.
 Applications with existing credentials should supply their evaluator to `testRules`
 or `calibrateRules`. Keep that adapter thin: do not copy the runner, fixture loading,
 isolated repository setup, threshold logic, or reporting into each application.
+
+## Inspect uncertainty in a model tester
+
+Use `prepareExamples` to obtain exact checker request packets from the project's
+fixtures. Send each packet's `state` and `questions` to the configured backend;
+keep `expected`, names, and thresholds as tester metadata. Inspect both initial
+and expanded packets, with raw confidence and answer probabilities visible.
+Preparation makes no inference calls. Generated inputs can be bundled as presets;
+regenerate them when their policy, fixture, or package version changes.
+
+The `question` option `combineAcceptedOutcomes: true` is an explicit experiment
+that gives compliant and inapplicable changes one acceptable option. Production
+questions keep separate options by default. Record which variant and evidence
+were tested. Do not treat a single packet, a longer tester deadline, or a sum of
+probabilities as proof that the full checker will pass. Verify candidate changes
+with repeated full checks and held-out examples before adoption.
