@@ -1,0 +1,33 @@
+{
+  "ruleId": "wording",
+  "examples": [
+    {
+      "name": "Mid-sentence capital",
+      "path": "docs/guide.md",
+      "before": "Review the remaining checks.\n",
+      "after": "Review the remaining Session checks.\n",
+      "expected": "violation"
+    },
+    {
+      "name": "Lowercase noun",
+      "path": "docs/guide.md",
+      "before": "Review the remaining checks.\n",
+      "after": "Review the remaining session checks.\n",
+      "expected": "pass"
+    },
+    {
+      "name": "Sentence beginning",
+      "path": "docs/guide.md",
+      "before": "History is available.\n",
+      "after": "Session history is available.\n",
+      "expected": "pass"
+    },
+    {
+      "name": "Quoted UI label",
+      "path": "docs/guide.md",
+      "before": "Click the button to continue.\n",
+      "after": "Click the exact UI label \"New Task\" to continue.\n",
+      "expected": "pass"
+    }
+  ]
+}

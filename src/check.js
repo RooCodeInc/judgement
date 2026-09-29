@@ -11,7 +11,13 @@ import {
   snapshot,
   textChunks,
 } from './git.js';
-import { ConfigurationError, matches, parsePolicy } from './policy.js';
+import {
+  ConfigurationError,
+  matches,
+  parsePolicy,
+  POLICY_PATH,
+  isConfigurationPath,
+} from './policy.js';
 import {
   createJevEvaluator,
   MAX_EVIDENCE_BYTES,
@@ -128,13 +134,19 @@ async function run(options, result, signal, stopped) {
   result.coverage.files = snap.changes.length;
   let policyText = await policyBlob(snap, snap.base, signal);
   result.policySource = 'base';
+  // Reject nonregular proposed policies without letting a new policy weaken this check.
+  const proposedPolicy =
+    policyText === null ||
+    snap.changes.some((change) => change.path === POLICY_PATH)
+      ? await policyBlob(snap, snap.tree, signal)
+      : null;
   if (policyText === null) {
-    policyText = await policyBlob(snap, snap.tree, signal);
+    policyText = proposedPolicy;
     result.policySource = 'proposed';
   }
   if (policyText === null) {
     result.policySource = 'absent';
-    trace('no JUDGE.json policy; no model requests');
+    trace('no Judgement policy; no model requests');
     return;
   }
   const policy = parsePolicy(policyText);
@@ -177,7 +189,8 @@ async function run(options, result, signal, stopped) {
         v: PROTOCOL_VERSION,
         backend: cacheIdentity,
         searchTree,
-        focusBlobs: snap.changes.filter((change) => request.focusPaths.includes(change.path))
+        focusBlobs: snap.changes
+          .filter((change) => request.focusPaths.includes(change.path))
           .map(({ oldOid, oid }) => ({ oldOid, oid })),
         request,
       }),
@@ -294,7 +307,7 @@ async function run(options, result, signal, stopped) {
           signal.throwIfAborted();
           const changes = snap.changes.filter(
             (change) =>
-              change.path !== 'JUDGE.json' &&
+              !isConfigurationPath(change.path) &&
               matches(change.path, criterion.files),
           );
           trace(
@@ -381,29 +394,49 @@ async function run(options, result, signal, stopped) {
                   };
                   if (bytes(request) <= MAX_EVIDENCE_BYTES) {
                     let answer = await ask(request, criterion.id);
-                    const uncertain = answer.outcome === 'unclear' ||
+                    const uncertain =
+                      answer.outcome === 'unclear' ||
                       answer.confidence < criterion.threshold;
                     if (uncertain && !options.dryRun) {
                       // Expand only when needed; keep every hunk in either request.
-                      const parts = change.mode === '000000' ? null : await load(change.path);
+                      const parts =
+                        change.mode === '000000'
+                          ? null
+                          : await load(change.path);
                       let expanded = parts && {
                         ...request,
-                        evidence: [...request.evidence, ...parts.map((part) => ({ ...part, kind: 'after' }))],
+                        evidence: [
+                          ...request.evidence,
+                          ...parts.map((part) => ({ ...part, kind: 'after' })),
+                        ],
                       };
                       if (!expanded || bytes(expanded) > MAX_EVIDENCE_BYTES) {
                         const wider = await evidenceFor(change, 80);
                         expanded = wider && {
                           ...request,
-                          evidence: [...wider, ...context.filter((part) => part.path !== change.path)],
+                          evidence: [
+                            ...wider,
+                            ...context.filter(
+                              (part) => part.path !== change.path,
+                            ),
+                          ],
                         };
                       }
-                      if (expanded && bytes(expanded) <= MAX_EVIDENCE_BYTES &&
-                          JSON.stringify(expanded.evidence) !== JSON.stringify(request.evidence)) {
-                        trace(`expanding context: ${JSON.stringify(criterion.id)} ${JSON.stringify(change.path)}`);
+                      if (
+                        expanded &&
+                        bytes(expanded) <= MAX_EVIDENCE_BYTES &&
+                        JSON.stringify(expanded.evidence) !==
+                          JSON.stringify(request.evidence)
+                      ) {
+                        trace(
+                          `expanding context: ${JSON.stringify(criterion.id)} ${JSON.stringify(change.path)}`,
+                        );
                         answer = await ask(expanded, criterion.id);
                         consume(answer, expanded);
                       } else {
-                        trace(`context expansion cannot fit or adds no evidence: ${JSON.stringify(change.path)}`);
+                        trace(
+                          `context expansion cannot fit or adds no evidence: ${JSON.stringify(change.path)}`,
+                        );
                         consume(answer, request);
                       }
                     } else {

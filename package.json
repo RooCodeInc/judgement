@@ -1,6 +1,6 @@
 {
   "name": "@roo-code/judgement",
-  "version": "0.1.5",
+  "version": "0.2.0",
   "description": "Fast Git checks for plain-language business rules, powered by Jev",
   "type": "module",
   "license": "MIT",
@@ -21,7 +21,8 @@
     "README.md",
     "LICENSE",
     "examples",
-    ".pre-commit-hooks.yaml"
+    ".pre-commit-hooks.yaml",
+    "docs"
   ],
   "scripts": {
     "test": "node --test test/*.test.js",

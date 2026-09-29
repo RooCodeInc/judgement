@@ -1,7 +1,28 @@
+import { lstat, readFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import picomatch from 'picomatch';
 
 const matchesGlob = (path, pattern) =>
   picomatch.isMatch(path, pattern, { dot: true });
+
+export const POLICY_PATH = '.judgement/rules.json';
+
+export const isConfigurationPath = (path) =>
+  path === POLICY_PATH || path.startsWith('.judgement/examples/');
+
+export async function readPolicy(cwd) {
+  let stat;
+  try {
+    stat = await lstat(join(cwd, POLICY_PATH));
+  } catch (error) {
+    if (error.code === 'ENOENT')
+      throw new ConfigurationError(`No ${POLICY_PATH} policy found.`);
+    throw error;
+  }
+  if (!stat.isFile())
+    throw new ConfigurationError(`${POLICY_PATH} must be a regular file.`);
+  return parsePolicy(await readFile(join(cwd, POLICY_PATH), 'utf8'));
+}
 
 export class ConfigurationError extends Error {}
 const keys = (value, allowed) =>
@@ -27,7 +48,7 @@ export function parsePolicy(text) {
   try {
     value = JSON.parse(text);
   } catch {
-    throw new ConfigurationError('JUDGE.json is not valid JSON.');
+    throw new ConfigurationError('Judgement policy is not valid JSON.');
   }
   if (
     !object(value) ||
@@ -36,7 +57,7 @@ export function parsePolicy(text) {
     !value.criteria.length
   )
     throw new ConfigurationError(
-      'JUDGE.json must contain a non-empty criteria array.',
+      'Judgement policy must contain a non-empty criteria array.',
     );
   const ids = new Set();
   return {
