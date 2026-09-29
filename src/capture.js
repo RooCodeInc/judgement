@@ -59,7 +59,9 @@ export async function captureExample(options = {}) {
     if (content.includes(0))
       throw new ConfigurationError('Capture does not support binary files.');
     try {
-      return new TextDecoder('utf-8', { fatal: true }).decode(content);
+      return new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(
+        content,
+      );
     } catch {
       throw new ConfigurationError('Capture supports UTF-8 text only.');
     }

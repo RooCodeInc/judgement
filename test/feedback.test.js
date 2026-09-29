@@ -135,6 +135,16 @@ test('capture handles additions and deletions and refuses changed support, binar
     captureExample({ cwd, ...capture, path: 'new.ts' }),
     /binary/,
   );
+  await writeFile(join(cwd, 'new.ts'), Buffer.from([0xff, 0xfe]));
+  await git('add', 'new.ts');
+  await assert.rejects(
+    captureExample({ cwd, ...capture, path: 'new.ts' }),
+    /UTF-8/,
+  );
+  await writeFile(join(cwd, 'new.ts'), '\ufeffcontent\n');
+  await git('add', 'new.ts');
+  f = await captureExample({ cwd, ...capture, path: 'new.ts' });
+  assert.equal(f.examples[0].after, '\ufeffcontent\n');
   await rm(join(cwd, 'new.ts'));
   await symlink('context.ts', join(cwd, 'new.ts'));
   await git('add', 'new.ts');
