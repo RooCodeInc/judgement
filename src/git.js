@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { resolve } from 'node:path';
+import { ConfigurationError } from './policy.js';
 
 export function hash(value) {
   return createHash('sha256').update(value).digest('hex');
@@ -103,30 +104,41 @@ export async function head(root, signal, env) {
 }
 
 export async function snapshot(options, signal) {
-  const root = resolve(options.cwd ?? process.cwd());
-  const originalHead = await head(root, signal, options.env);
+  const cwd = resolve(options.cwd ?? process.cwd());
+  const env = gitEnv(options.env);
+  for (const key of [
+    'GIT_INDEX_FILE',
+    'GIT_DIR',
+    'GIT_WORK_TREE',
+    'GIT_COMMON_DIR',
+    'GIT_OBJECT_DIRECTORY',
+  ]) {
+    if (env[key]) env[key] = resolve(cwd, env[key]);
+  }
+  const root = await git(cwd, ['rev-parse', '--show-toplevel'], signal, env);
+  const originalHead = await head(root, signal, env);
   let base, tree;
   if (options.base !== undefined) {
     base = await git(
       root,
       ['rev-parse', '--verify', `${options.base}^{commit}`],
       signal,
-      options.env,
+      env,
     );
     tree = await git(
       root,
       ['rev-parse', '--verify', `${options.head ?? 'HEAD'}^{tree}`],
       signal,
-      options.env,
+      env,
     );
   } else {
     base = originalHead;
-    tree = await git(root, ['write-tree'], signal, options.env);
+    tree = await git(root, ['write-tree'], signal, env);
   }
   // An empty tree is a Git object, independent of the repository's hash algorithm.
   if (!base) {
     // mktree accepts an empty stdin; streamGit supplies /dev/null.
-    base = await git(root, ['mktree'], signal, options.env);
+    base = await git(root, ['mktree'], signal, env);
   }
   const raw = await git(
     root,
@@ -141,7 +153,7 @@ export async function snapshot(options, signal) {
       tree,
     ],
     signal,
-    options.env,
+    env,
   );
   const records = raw.split('\0');
   const changes = [];
@@ -158,7 +170,7 @@ export async function snapshot(options, signal) {
       status: parts[4],
     });
   }
-  return { root, base, tree, originalHead, changes, env: options.env };
+  return { root, base, tree, originalHead, changes, env };
 }
 
 export async function inventory(snap, signal) {
@@ -190,7 +202,7 @@ export async function policyBlob(snap, tree, signal) {
   if (!record) return null;
   const [mode, type, oid] = record.split(/[ \t]/);
   if (!['100644', '100755'].includes(mode) || type !== 'blob')
-    throw new Error('JUDGE.json must be a regular file.');
+    throw new ConfigurationError('JUDGE.json must be a regular file.');
   return git(snap.root, ['cat-file', 'blob', oid], signal, snap.env);
 }
 

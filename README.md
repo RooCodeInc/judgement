@@ -28,7 +28,7 @@ Node 22.20+ or 24+ and Git are required. There are no runtime npm dependencies.
 The package is distributed from this repository; it is not yet published to npm.
 
 ```sh
-npm install --save-dev https://github.com/RooCodeInc/judgement/archive/refs/tags/v0.1.1.tar.gz
+npm install --save-dev https://github.com/RooCodeInc/judgement/archive/refs/tags/v0.1.2.tar.gz
 export TYPESAFE_API_KEY=...
 ./node_modules/.bin/judgement check --staged
 ```
@@ -54,7 +54,7 @@ A required CI check must finish that work before merging. Judgement does not
 schedule a background check or configure branch protection for you.
 
 For the [pre-commit framework](https://pre-commit.com), use this repository's
-`.pre-commit-hooks.yaml` with `rev: v0.1.1` and hook `id: judgement`.
+`.pre-commit-hooks.yaml` with `rev: v0.1.2` and hook `id: judgement`.
 
 ## CI and strict checks
 

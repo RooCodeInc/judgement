@@ -374,3 +374,13 @@ test('explicit context comes from the index, including partially staged helpers'
   });
   assert.equal(result.status, 'pass');
 });
+
+test('running from a subdirectory still checks the repository policy and all staged paths', async (t) => {
+  const r = await repo(t);
+  await r.put('nested/example.js', 'nested change');
+  await r.put('billing.js', 'root change');
+  await r.git('add', '.');
+  const report = await r.run({ cwd: join(r.root, 'nested'), evaluate: bad });
+  assert.equal(report.status, 'violation');
+  assert.equal(report.rules[0].findings.length, 2);
+});
