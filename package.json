@@ -1,6 +1,6 @@
 {
   "name": "@roo-code/judgement",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Fast Git checks for plain-language business rules, powered by Jev",
   "type": "module",
   "license": "MIT",
@@ -34,5 +34,8 @@
   },
   "publishConfig": {
     "access": "public"
+  },
+  "dependencies": {
+    "picomatch": "4.0.7"
   }
 }

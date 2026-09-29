@@ -1,4 +1,7 @@
-import { matchesGlob } from 'node:path';
+import picomatch from 'picomatch';
+
+const matchesGlob = (path, pattern) =>
+  picomatch.isMatch(path, pattern, { dot: true });
 
 export class ConfigurationError extends Error {}
 const keys = (value, allowed) =>

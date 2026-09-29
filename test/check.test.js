@@ -436,3 +436,28 @@ test('diagnostics report model answers and cache hits without changing results',
     'pass',
   );
 });
+
+test('broad rules include staged files and context in hidden directories', async (t) => {
+  const r = await repo(t, [
+    { ...rule, files: ['**/*'], context: ['.support/**/*'] },
+  ]);
+  await r.put('.support/conventions.md', 'SUPPORTING_CONTEXT');
+  await r.git('add', '.');
+  await r.git('commit', '-qm', 'context');
+  await r.put('.agents/skills/example/SKILL.md', 'changed');
+  await r.git('add', '.');
+  const seen = [];
+  const report = await r.run({
+    evaluate: async (request) => {
+      seen.push(...request.focusPaths);
+      assert(
+        request.evidence.some(
+          (part) => part.path === '.support/conventions.md',
+        ),
+      );
+      return bad();
+    },
+  });
+  assert.deepEqual(seen, ['.agents/skills/example/SKILL.md']);
+  assert.equal(report.status, 'violation');
+});

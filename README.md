@@ -24,11 +24,11 @@ related source files from the exact Git snapshot being checked.
 
 ## Install
 
-Node 22.20+ or 24+ and Git are required. There are no runtime npm dependencies.
+Node 22.20+ or 24+ and Git are required. Glob matching uses the small `picomatch` dependency.
 Install the published package from npm.
 
 ```sh
-npm install --save-dev --save-exact @roo-code/judgement@0.1.4
+npm install --save-dev --save-exact @roo-code/judgement@0.1.5
 export TYPESAFE_API_KEY=...
 ./node_modules/.bin/judgement check --staged
 ```
@@ -54,7 +54,7 @@ A required CI check must finish that work before merging. Judgement does not
 schedule a background check or configure branch protection for you.
 
 For the [pre-commit framework](https://pre-commit.com), use this repository's
-`.pre-commit-hooks.yaml` with `rev: v0.1.4` and hook `id: judgement`.
+`.pre-commit-hooks.yaml` with `rev: v0.1.5` and hook `id: judgement`.
 
 ## CI and strict checks
 
@@ -99,7 +99,7 @@ the final report applies confidence thresholds and coverage requirements.
 - `threshold`: confidence cutoff between 0 and 1; defaults to 0.85. It is not a
   measured probability that the change is correct.
 
-Globs use Node's `path.matchesGlob` syntax. Bare names also match path components;
+Globs use `picomatch` syntax and include dotfiles and hidden directories. Bare names also match path components;
 trailing `/` selects a directory. Absolute paths, `..`, negation, and backslashes
 are rejected. This is a small declarative configuration, never executable code.
 
