@@ -12,11 +12,7 @@ import { ConfigurationError, readPolicy, POLICY_PATH } from './policy.js';
 
 const hash = (text) => createHash('sha256').update(text).digest('hex');
 
-async function runExamples(options, mode) {
-  if (mode === 'test' && options.thresholds !== undefined)
-    throw new ConfigurationError(
-      'Tests use configured thresholds. Use calibrate to compare candidates.',
-    );
+export async function loadExampleInputs(options = {}) {
   const policy = await readPolicy(options.cwd ?? process.cwd());
   const rules = policy.criteria.filter(
     (rule) => !options.ruleId || rule.id === options.ruleId,
@@ -56,6 +52,15 @@ async function runExamples(options, mode) {
       return { rule, text };
     }),
   );
+  return { policy, fixtures };
+}
+
+async function runExamples(options, mode) {
+  if (mode === 'test' && options.thresholds !== undefined)
+    throw new ConfigurationError(
+      'Tests use configured thresholds. Use calibrate to compare candidates.',
+    );
+  const { policy, fixtures } = await loadExampleInputs(options);
   const policyText = JSON.stringify(policy);
   const cwd = await mkdtemp(join(tmpdir(), 'judgement-examples-'));
   const reports = [];

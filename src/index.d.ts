@@ -1,5 +1,7 @@
 export type Outcome = 'pass' | 'violation' | 'unclear' | 'not_applicable';
-export type Answer = { outcome: Outcome; confidence: number };
+export type Answer =
+  | { violationProbability: number }
+  | { outcome: Outcome; confidence: number };
 export type Evidence = {
   path: string;
   kind: 'patch' | 'before' | 'after' | 'context';
@@ -30,6 +32,7 @@ export type RuleResult = {
   findings: {
     paths: string[];
     confidence: number;
+    violationProbability?: number;
     sources: Pick<Evidence, 'path' | 'kind' | 'line'>[];
   }[];
   unresolved: string[];
@@ -82,9 +85,9 @@ export function exitCode(
 export function formatReport(report: Report): string;
 export function createJevEvaluator(options?: BackendOptions): Evaluator;
 export function question(request: JudgeRequest): {
-  type: 'choice';
+  type: 'noul';
   instructions: string;
-  criteria: Record<string, string>;
+  criteria: { true: string; false: string };
 };
 export function validateAnswer(answer: unknown, request: JudgeRequest): Answer;
 export function parsePolicy(text: string): { criteria: Criterion[] };
@@ -193,3 +196,34 @@ export function calibrateRules(
 ): Promise<ExampleSuiteReport>;
 export function exampleSuiteExitCode(report: ExampleSuiteReport): number;
 export function formatExampleSuite(report: ExampleSuiteReport): string;
+
+export type PreparedExamplesOptions = Pick<
+  ExampleSuiteOptions,
+  | 'cwd'
+  | 'ruleId'
+  | 'examplesPath'
+  | 'examplesDirectory'
+  | 'deadlineMs'
+  | 'signal'
+>;
+export type PreparedExamplePacket = {
+  stage: 'initial' | 'expanded' | 'screen';
+  state: JudgeRequest;
+  questions: { result: ReturnType<typeof question> };
+};
+export type PreparedExamples = {
+  protocolVersion: number;
+  policySha256: string;
+  fixtureSha256: Record<string, string>;
+  examples: {
+    ruleId: string;
+    rule: string;
+    threshold: number;
+    name: string;
+    expected: 'pass' | 'violation';
+    packets: PreparedExamplePacket[];
+  }[];
+};
+export function prepareExamples(
+  options?: PreparedExamplesOptions,
+): Promise<PreparedExamples>;

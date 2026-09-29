@@ -19,3 +19,4 @@ export {
   exampleSuiteExitCode,
   formatExampleSuite,
 } from './examples.js';
+export { prepareExamples } from './prepare-examples.js';

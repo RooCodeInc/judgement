@@ -23,6 +23,7 @@ import {
   MAX_EVIDENCE_BYTES,
   MODEL,
   PROTOCOL_VERSION,
+  formatAnswer,
   validateAnswer,
 } from './model.js';
 
@@ -206,9 +207,7 @@ async function run(options, result, signal, stopped) {
           result.coverage.cached++;
           result.coverage.judged++;
         }
-        trace(
-          `cache hit: ${label}; answer ${cached.outcome}, confidence ${cached.confidence.toFixed(2)}`,
-        );
+        trace(`cache hit: ${label}; ${formatAnswer(cached)}`);
         return cached;
       } catch {
         /* Missing or invalid cache entries are evaluated again. */
@@ -226,9 +225,12 @@ async function run(options, result, signal, stopped) {
     signal.throwIfAborted();
     if (!stopped()) result.coverage.judged++;
     trace(
-      `answer: ${label}; ${answer.outcome}, confidence ${answer.confidence.toFixed(2)} (${Math.round(performance.now() - started)} ms)`,
+      `answer: ${label}; ${formatAnswer(answer)} (${Math.round(performance.now() - started)} ms)`,
     );
-    if (target && !['unclear'].includes(answer.outcome)) {
+    if (
+      target &&
+      ('violationProbability' in answer || answer.outcome !== 'unclear')
+    ) {
       // Cache failures cannot turn an otherwise completed check into a failure.
       try {
         await mkdir(cacheDir, { recursive: true, mode: 0o700 });
@@ -338,6 +340,22 @@ async function run(options, result, signal, stopped) {
           }
           const contextUnresolved = [...record.unresolved];
           const consume = (answer, request) => {
+            if ('violationProbability' in answer) {
+              if (answer.violationProbability >= criterion.threshold) {
+                record.status = 'violation';
+                record.findings.push({
+                  paths: request.focusPaths,
+                  confidence: answer.violationProbability,
+                  violationProbability: answer.violationProbability,
+                  sources: request.evidence.map(({ path, kind, line }) => ({
+                    path,
+                    kind,
+                    line,
+                  })),
+                });
+              }
+              return;
+            }
             if (
               answer.outcome === 'violation' &&
               answer.confidence >= criterion.threshold
@@ -395,8 +413,9 @@ async function run(options, result, signal, stopped) {
                   if (bytes(request) <= MAX_EVIDENCE_BYTES) {
                     let answer = await ask(request, criterion.id);
                     const uncertain =
-                      answer.outcome === 'unclear' ||
-                      answer.confidence < criterion.threshold;
+                      !('violationProbability' in answer) &&
+                      (answer.outcome === 'unclear' ||
+                        answer.confidence < criterion.threshold);
                     if (uncertain && !options.dryRun) {
                       // Expand only when needed; keep every hunk in either request.
                       const parts =
@@ -530,7 +549,7 @@ export function formatReport(report) {
     lines.push(`${rule.status}: ${rule.id}: ${rule.rule}`);
     for (const finding of rule.findings)
       lines.push(
-        `  ${finding.paths.join(', ')} (confidence ${finding.confidence.toFixed(2)})`,
+        `  ${finding.paths.join(', ')} (${finding.violationProbability === undefined ? 'confidence' : 'violation probability'} ${finding.confidence.toFixed(2)})`,
       );
     for (const unresolved of new Set(rule.unresolved))
       lines.push(`  ${unresolved}`);
