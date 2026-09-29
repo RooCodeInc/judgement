@@ -75,5 +75,5 @@ test('the model asks for the probability of a violation', () => {
   const result = question(request);
   assert.equal(result.type, 'noul');
   assert.deepEqual(Object.keys(result.criteria), ['true', 'false']);
-  assert.match(result.criteria.false, /outside its scope/);
+  assert.match(result.criteria.false, /stated exceptions/);
 });
