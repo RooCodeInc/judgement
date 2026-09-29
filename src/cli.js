@@ -7,6 +7,7 @@ try {
     allowPositionals: true,
     options: {
       staged: { type: 'boolean' },
+      verbose: { type: 'boolean', short: 'v' },
       hook: { type: 'boolean' },
       advisory: { type: 'boolean' },
       base: { type: 'string' },
@@ -22,7 +23,7 @@ try {
   });
   if (values.help) {
     console.log(
-      'judgement check [--staged [--hook] | --base <commit> --head <commit>] [--dry-run] [--format json] [--timeout-ms <ms>] [--no-cache] [--advisory]\nReads JUDGE.json from the base tree. Hooks allow incomplete checks after 3 seconds; strict checks exit 3.',
+      'judgement check [--staged [--hook] | --base <commit> --head <commit>] [--dry-run] [--format json] [--timeout-ms <ms>] [--no-cache] [--advisory] [--verbose]\nReads JUDGE.json from the base tree. Hooks allow incomplete checks after 3 seconds; strict checks exit 3.',
     );
   } else {
     if (
@@ -36,6 +37,9 @@ try {
       throw new Error('Invalid arguments. Use --help.');
     const report = await check({
       cwd: values.cwd,
+      onDiagnostic: values.verbose
+        ? (message) => console.error(`judgement: ${message}`)
+        : undefined,
       base: values.base,
       head: values.head,
       hook: values.hook,

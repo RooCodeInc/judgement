@@ -28,7 +28,7 @@ Node 22.20+ or 24+ and Git are required. There are no runtime npm dependencies.
 Install the published package from npm.
 
 ```sh
-npm install --save-dev --save-exact @roo-code/judgement@0.1.3
+npm install --save-dev --save-exact @roo-code/judgement@0.1.4
 export TYPESAFE_API_KEY=...
 ./node_modules/.bin/judgement check --staged
 ```
@@ -54,7 +54,7 @@ A required CI check must finish that work before merging. Judgement does not
 schedule a background check or configure branch protection for you.
 
 For the [pre-commit framework](https://pre-commit.com), use this repository's
-`.pre-commit-hooks.yaml` with `rev: v0.1.3` and hook `id: judgement`.
+`.pre-commit-hooks.yaml` with `rev: v0.1.4` and hook `id: judgement`.
 
 ## CI and strict checks
 
@@ -63,6 +63,7 @@ judgement check --base origin/main --head HEAD
 judgement check --staged --format json
 judgement check --staged --dry-run
 judgement check --staged --no-cache
+judgement check --staged --verbose
 ```
 
 `--base` is an exact base revision, not an implicit merge-base operation. For a
@@ -80,6 +81,11 @@ Run untrusted contributions without write-capable repository tokens.
 `--advisory` reports all outcomes without blocking. `--timeout-ms` changes the
 budget (strict mode defaults to 120 seconds). Use JSON `status` to distinguish
 incomplete hook runs from completed ones. `--dry-run` sends no model requests.
+
+`--verbose` (or `-v`) streams file/rule progress, request sizes, cache hits,
+model answers, and timings to stderr. It does not print source contents or
+credentials. JSON reports remain on stdout. Model answers are intermediate;
+the final report applies confidence thresholds and coverage requirements.
 
 ## Rules
 

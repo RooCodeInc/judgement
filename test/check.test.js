@@ -384,3 +384,55 @@ test('running from a subdirectory still checks the repository policy and all sta
   assert.equal(report.status, 'violation');
   assert.equal(report.rules[0].findings.length, 2);
 });
+
+test('verbose CLI keeps JSON output separate and does not expose source contents', async (t) => {
+  const r = await repo(t);
+  await r.put('billing.js', 'PRIVATE_SOURCE_MARKER');
+  await r.git('add', '.');
+  const cli = new URL('../src/cli.js', import.meta.url).pathname;
+  const { stdout, stderr } = await exec(
+    process.execPath,
+    [cli, 'check', '--staged', '--dry-run', '--verbose', '--format', 'json'],
+    { cwd: r.root },
+  );
+  assert.equal(JSON.parse(stdout).status, 'incomplete');
+  assert.match(stderr, /snapshot: 1 changed files/);
+  assert.match(stderr, /criterion_1/);
+  assert.match(stderr, /billing.js/);
+  assert.match(stderr, /dry run:/);
+  assert.doesNotMatch(stderr, /PRIVATE_SOURCE_MARKER/);
+  const quiet = await exec(
+    process.execPath,
+    [cli, 'check', '--staged', '--dry-run'],
+    { cwd: r.root },
+  );
+  assert.equal(quiet.stderr, '');
+});
+
+test('diagnostics report model answers and cache hits without changing results', async (t) => {
+  const r = await repo(t);
+  await r.put('billing.js', 'changed');
+  await r.git('add', '.');
+  const messages = [];
+  const options = {
+    cache: true,
+    cacheIdentity: 'verbose-test',
+    evaluate: pass,
+    onDiagnostic: (message) => messages.push(message),
+  };
+  assert.equal((await r.run(options)).status, 'pass');
+  assert(messages.some((message) => message.includes('answer:')));
+  messages.length = 0;
+  assert.equal((await r.run(options)).status, 'pass');
+  assert(messages.some((message) => message.includes('cache hit:')));
+  assert.equal(
+    (
+      await r.run({
+        onDiagnostic: () => {
+          throw new Error('broken logger');
+        },
+      })
+    ).status,
+    'pass',
+  );
+});

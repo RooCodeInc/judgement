@@ -70,6 +70,7 @@ export type CheckOptions = BackendOptions & {
   cacheIdentity?: string;
   evaluate?: Evaluator;
   env?: Record<string, string | undefined>;
+  onDiagnostic?: (message: string) => void;
   onProgress?: (event: { id: string; status: RuleResult['status'] }) => void;
 };
 export function check(options?: CheckOptions): Promise<Report>;

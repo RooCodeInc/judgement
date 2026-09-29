@@ -113,7 +113,17 @@ export async function check(options = {}) {
 }
 
 async function run(options, result, signal, stopped) {
+  const trace = (message) => {
+    if (!stopped()) {
+      try {
+        options.onDiagnostic?.(message);
+      } catch {
+        /* Diagnostics cannot change a verdict. */
+      }
+    }
+  };
   const snap = await snapshot(options, signal);
+  trace(`snapshot: ${snap.changes.length} changed files`);
   result.snapshot = { base: snap.base, tree: snap.tree };
   result.coverage.files = snap.changes.length;
   let policyText = await policyBlob(snap, snap.base, signal);
@@ -124,9 +134,11 @@ async function run(options, result, signal, stopped) {
   }
   if (policyText === null) {
     result.policySource = 'absent';
+    trace('no JUDGE.json policy; no model requests');
     return;
   }
   const policy = parsePolicy(policyText);
+  trace(`policy: ${result.policySource}; ${policy.criteria.length} rules`);
   if (snap.changes.length === 0) return;
   const files = await inventory(snap, signal);
   const limit = pool(options.concurrency ?? 8);
@@ -147,10 +159,16 @@ async function run(options, result, signal, stopped) {
     );
     cacheDir = join(gitDir, 'judgement-cache');
   }
-  const ask = async (request) => {
+  const ask = async (request, id) => {
+    const label = `${JSON.stringify(id)} ${request.focusPaths.map((path) => JSON.stringify(path)).join(', ')}${request.complete ? '' : ' (partial screen)'}`;
     signal.throwIfAborted();
     result.coverage.packets++;
-    if (options.dryRun) return { outcome: 'unclear', confidence: 0 };
+    if (options.dryRun) {
+      trace(
+        `dry run: ${label}; ${bytes(request)} evidence bytes; no model request`,
+      );
+      return { outcome: 'unclear', confidence: 0 };
+    }
     // Cache raw answers, not approval of a repository. Planning runs again on every snapshot.
     // Negative lookups depend on the whole tree; positive evidence carries exact blob identities.
     const searchTree = request.unresolved?.length ? snap.tree : undefined;
@@ -173,11 +191,16 @@ async function run(options, result, signal, stopped) {
           result.coverage.cached++;
           result.coverage.judged++;
         }
+        trace(
+          `cache hit: ${label}; answer ${cached.outcome}, confidence ${cached.confidence.toFixed(2)}`,
+        );
         return cached;
       } catch {
         /* Missing or invalid cache entries are evaluated again. */
       }
     }
+    const started = performance.now();
+    trace(`judging: ${label}; ${bytes(request)} evidence bytes`);
     const answer = validateAnswer(
       await modelLimit(() => {
         signal.throwIfAborted();
@@ -187,6 +210,9 @@ async function run(options, result, signal, stopped) {
     );
     signal.throwIfAborted();
     if (!stopped()) result.coverage.judged++;
+    trace(
+      `answer: ${label}; ${answer.outcome}, confidence ${answer.confidence.toFixed(2)} (${Math.round(performance.now() - started)} ms)`,
+    );
     if (target && !['unclear'].includes(answer.outcome)) {
       // Cache failures cannot turn an otherwise completed check into a failure.
       try {
@@ -274,6 +300,9 @@ async function run(options, result, signal, stopped) {
               change.path !== 'JUDGE.json' &&
               matches(change.path, criterion.files),
           );
+          trace(
+            `rule ${JSON.stringify(criterion.id)}: ${changes.length} matching files`,
+          );
           if (!changes.length) {
             record.status = 'not_applicable';
             return;
@@ -329,6 +358,9 @@ async function run(options, result, signal, stopped) {
               fileLimit(async () => {
                 try {
                   signal.throwIfAborted();
+                  trace(
+                    `collecting: ${JSON.stringify(criterion.id)} ${JSON.stringify(change.path)}`,
+                  );
                   const evidence = await evidenceFor(change);
                   signal.throwIfAborted();
                   if (!evidence) {
@@ -351,7 +383,7 @@ async function run(options, result, signal, stopped) {
                     unresolved: contextUnresolved,
                   };
                   if (bytes(request) <= MAX_EVIDENCE_BYTES) {
-                    consume(await ask(request), request);
+                    consume(await ask(request, criterion.id), request);
                   } else {
                     record.unresolved.push(
                       `Evidence exceeds the file budget: ${change.path}`,
@@ -370,7 +402,7 @@ async function run(options, result, signal, stopped) {
                         );
                         continue;
                       }
-                      consume(await ask(screen), screen);
+                      consume(await ask(screen, criterion.id), screen);
                       await setImmediate();
                     }
                   }
@@ -392,6 +424,7 @@ async function run(options, result, signal, stopped) {
               : 'pass';
           if (options.dryRun)
             record.unresolved.push('Dry run: no model requests were sent.');
+          trace(`rule ${JSON.stringify(criterion.id)}: ${record.status}`);
           options.onProgress?.({ id: criterion.id, status: record.status });
         } catch {
           if (!stopped()) {
