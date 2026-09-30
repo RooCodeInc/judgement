@@ -22,7 +22,8 @@
     "LICENSE",
     "examples",
     ".pre-commit-hooks.yaml",
-    "docs"
+    "docs",
+    "skills"
   ],
   "scripts": {
     "test": "node --test test/*.test.js",
