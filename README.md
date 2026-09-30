@@ -452,3 +452,84 @@ Use advisory mode on a labeled sample before enforcing a rule.
 - [jev-lint](https://github.com/mizchi/jev-lint): caching, calibration, and hook integration.
 
 This implementation is independently written. MIT licensed.
+
+## Inspect a finding
+
+Text reports show the rule, violation probability, cutoff, and a bounded preview
+of changed lines with before/after line numbers. The model judges an evidence
+packet; the preview does not claim to identify the exact offending line. JSON
+reports include the same preview and indicate omitted or truncated lines.
+
+Checks show delayed progress on stderr, including checked packets and cache hits.
+Use `--no-progress` for quiet output or `--verbose` for individual requests. JSON
+stays on stdout. Progress makes no inference calls and does not extend the hook
+budget. Cached answers are reused only for matching evidence, rule, model/backend
+identity, and protocol. Custom evaluators must supply a stable `cacheIdentity` to
+opt into caching; hosts with mutable inference settings may leave it disabled.
+
+## Turn a mistake into an example
+
+Preview an incorrectly blocked edit (`pass`) or a missed violation (`violation`):
+
+```sh
+judgement capture --rule wording --path docs/guide.md \
+  --name "Quoted UI label" --expected pass
+```
+
+Capture reads the index against HEAD, including unchanged supporting files named
+by the rule's context globs. It does not read unstaged changes or call the model.
+Use `--base <commit> --head <commit>` for committed changes and repeat
+`--context <path>` to include additional unchanged supporting files.
+
+Review and redact the preview, then save a new fixture file:
+
+```sh
+judgement capture --rule wording --path docs/guide.md \
+  --name "Quoted UI label" --expected pass \
+  --output .judgement/examples/quoted-label.json
+judgement test --rule wording --examples .judgement/examples/quoted-label.json
+```
+
+`--output` refuses to overwrite existing files and never stages anything. If the
+preview contains sensitive values, save the preview to a local scratch file and
+replace them with synthetic values before adding it to the repository. The fixture
+can be tested independently with `--examples` or its example merged into the
+rule's main fixture file. Multi-file changes need reduction to a single changed
+file with unchanged supporting context. Binary files, symlinks, and captures above
+256 KB are rejected instead of producing misleading fixtures.
+
+## Compare calibration runs
+
+Keep the fixtures fixed while changing a rule, prompt, model, or cutoff:
+
+```sh
+mkdir -p .judgement/results
+judgement test --format json > .judgement/results/before.json
+# Make the candidate change, then rerun the same examples.
+judgement test --format json > .judgement/results/after.json
+judgement compare --before .judgement/results/before.json \
+  --after .judgement/results/after.json
+```
+
+Comparison lists improvements and regressions per example, so a net gain does not
+hide a new false block. It compares correct-run rates when repetition counts differ
+and retains incomplete results, failures, and raw probability ranges in JSON.
+A regression exits 1; incompatible input exits 2. Fixture hashes and labels must
+match. Reports without fixture provenance must be regenerated. Calibration reports
+with several cutoffs use each report's configured cutoff by default; select another
+recorded cutoff with `--before-threshold` or `--after-threshold`. Comparison is local
+and makes no inference calls. Keep generated reports out of source control.
+
+## Strict CI checks
+
+Run `judgement check --base <merge-base> --head <pr-head> --timeout-ms 120000`
+without `--hook` or `--advisory`. Violations exit 1, invalid configuration exits 2,
+and incomplete coverage or inference failures exit 3. Make that check required
+in the repository's merge rules; a local hook may be skipped or time out.
+
+For public contributions, run a pinned, trusted copy of Judgement with trusted
+workflow code and a read-only checkout of the base revision. Fetch the PR head as
+Git objects and inspect its diff without checking out or executing PR code. Keep
+inference credentials scoped to the checking step, disable package install scripts,
+and never restore caches controlled by untrusted PR code into that job. CI uses
+its configured inference backend; align its model with the one used for calibration.

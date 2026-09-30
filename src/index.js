@@ -20,3 +20,7 @@ export {
   formatExampleSuite,
 } from './examples.js';
 export { prepareExamples } from './prepare-examples.js';
+export { captureExample, saveCapturedExample } from './capture.js';
+export { compareReports, formatComparison } from './compare.js';
+export { createProgressReporter, formatProgress } from './presentation.js';
+export { runCli } from './commands.js';

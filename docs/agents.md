@@ -150,3 +150,24 @@ remain incomplete. The default binary evaluator does not request context expansi
 based on its probability. Use explicit context and compare expanded packets when
 investigating a missed violation. Recalibrate when changing question types; Choice
 confidence and Noul probability use different meanings and scales.
+
+## Collect and compare feedback
+
+Use `judgement capture --rule <id> --path <file> --name <name> --expected pass|violation`
+to preview an index-based example. Review and redact it before saving a new file
+with `--output`; capture never overwrites or stages files. Include unchanged
+supporting evidence with `--context`. Reduce multi-file changes rather than
+silently discarding context that changed. Captured content must satisfy the
+repository's privacy requirements before it is committed.
+
+Save baseline and candidate `test --format json` reports locally, using identical
+fixtures. `judgement compare --before <file> --after <file>` exposes per-example
+regressions and exits 1 when any are found. Do not change expected labels to hide
+regressions. Compare both valid exceptions and violations; repeated observations
+of the same example are not independent coverage.
+
+Finding snippets are changed-line previews, not model-localized accusations.
+Read the supplied evidence before proposing a fix. Progress and cache-hit counts
+are diagnostics; only a complete report establishes check completion. In CI, use
+strict checks without `--hook` or `--advisory`, and require the resulting status
+before merge. Missing inference credentials must not produce a successful check.

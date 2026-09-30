@@ -1,3 +1,4 @@
+import { changedLines, terminalText } from './presentation.js';
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { setImmediate } from 'node:timers/promises';
@@ -77,18 +78,36 @@ export async function check(options = {}) {
     ? AbortSignal.any([options.signal, controller.signal])
     : controller.signal;
   let stopped = false;
-  const work = run(options, result, signal, () => stopped).catch((error) => {
-    if (!stopped) {
-      result.messages.push(
-        error instanceof ConfigurationError
-          ? error.message
-          : signal.aborted
-            ? 'Check deadline reached; a full check is still required.'
-            : 'Check could not finish. Verify Git access and the judgment backend.',
-      );
-      if (error instanceof ConfigurationError) result.status = 'invalid';
+  const status = (values = {}) => {
+    if (stopped) return;
+    try {
+      options.onStatus?.({
+        files: result.coverage.files,
+        rulesTotal: 0,
+        rulesFinished: 0,
+        judged: result.coverage.judged,
+        cached: result.coverage.cached,
+        elapsedMs: performance.now() - started,
+        ...values,
+      });
+    } catch {
+      /* Display callbacks cannot affect a check. */
     }
-  });
+  };
+  const work = run(options, result, signal, () => stopped, status).catch(
+    (error) => {
+      if (!stopped) {
+        result.messages.push(
+          error instanceof ConfigurationError
+            ? error.message
+            : signal.aborted
+              ? 'Check deadline reached; a full check is still required.'
+              : 'Check could not finish. Verify Git access and the judgment backend.',
+        );
+        if (error instanceof ConfigurationError) result.status = 'invalid';
+      }
+    },
+  );
   let timer;
   const deadline = new Promise((resolve) => {
     timer = setTimeout(() => {
@@ -119,7 +138,7 @@ export async function check(options = {}) {
   return structuredClone(result);
 }
 
-async function run(options, result, signal, stopped) {
+async function run(options, result, signal, stopped, status) {
   const trace = (message) => {
     if (!stopped()) {
       try {
@@ -151,6 +170,10 @@ async function run(options, result, signal, stopped) {
     return;
   }
   const policy = parsePolicy(policyText);
+  let rulesFinished = 0;
+  const progress = () =>
+    status({ rulesTotal: policy.criteria.length, rulesFinished });
+  progress();
   trace(`policy: ${result.policySource}; ${policy.criteria.length} rules`);
   if (snap.changes.length === 0) return;
   const files = await inventory(snap, signal);
@@ -207,6 +230,7 @@ async function run(options, result, signal, stopped) {
           result.coverage.cached++;
           result.coverage.judged++;
         }
+        progress();
         trace(`cache hit: ${label}; ${formatAnswer(cached)}`);
         return cached;
       } catch {
@@ -224,6 +248,7 @@ async function run(options, result, signal, stopped) {
     );
     signal.throwIfAborted();
     if (!stopped()) result.coverage.judged++;
+    progress();
     trace(
       `answer: ${label}; ${formatAnswer(answer)} (${Math.round(performance.now() - started)} ms)`,
     );
@@ -299,6 +324,7 @@ async function run(options, result, signal, stopped) {
         const record = {
           id: criterion.id,
           rule: criterion.rule,
+          threshold: criterion.threshold,
           status: 'incomplete',
           findings: [],
           unresolved: [],
@@ -344,6 +370,7 @@ async function run(options, result, signal, stopped) {
               if (answer.violationProbability >= criterion.threshold) {
                 record.status = 'violation';
                 record.findings.push({
+                  ...changedLines(request),
                   paths: request.focusPaths,
                   confidence: answer.violationProbability,
                   violationProbability: answer.violationProbability,
@@ -362,6 +389,7 @@ async function run(options, result, signal, stopped) {
             ) {
               record.status = 'violation';
               record.findings.push({
+                ...changedLines(request),
                 paths: request.focusPaths,
                 confidence: answer.confidence,
                 sources: request.evidence.map(({ path, kind, line }) => ({
@@ -508,6 +536,11 @@ async function run(options, result, signal, stopped) {
             record.status = record.findings.length ? 'violation' : 'incomplete';
             record.unresolved.push('Evidence collection or judgment failed.');
           }
+        } finally {
+          if (!stopped()) {
+            rulesFinished++;
+            progress();
+          }
         }
       }),
     ),
@@ -547,13 +580,25 @@ export function formatReport(report) {
   for (const rule of report.rules) {
     if (rule.status === 'pass' || rule.status === 'not_applicable') continue;
     lines.push(`${rule.status}: ${rule.id}: ${rule.rule}`);
-    for (const finding of rule.findings)
+    for (const finding of rule.findings) {
       lines.push(
-        `  ${finding.paths.join(', ')} (${finding.violationProbability === undefined ? 'confidence' : 'violation probability'} ${finding.confidence.toFixed(2)})`,
+        `  ${finding.paths.join(', ')} (${finding.violationProbability === undefined ? 'confidence' : 'violation probability'} ${finding.confidence.toFixed(2)}; cutoff ${rule.threshold?.toFixed(2) ?? 'unknown'})`,
       );
+      if (finding.changes?.length) {
+        lines.push(
+          '  Changed-line preview (the model judged the packet, not individual lines):',
+        );
+        for (const change of finding.changes)
+          lines.push(
+            `    ${change.path}:${change.line ?? '?'} [${change.side}] ${change.side === 'after' ? '+' : '-'}${change.text}${change.truncated ? '…' : ''}`,
+          );
+        if (finding.omitted)
+          lines.push(`    … ${finding.omitted} more changed lines`);
+      }
+    }
     for (const unresolved of new Set(rule.unresolved))
       lines.push(`  ${unresolved}`);
   }
   lines.push(...report.messages);
-  return lines.join('\n');
+  return lines.map(terminalText).join('\n');
 }
