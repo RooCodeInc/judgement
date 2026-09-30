@@ -23,11 +23,25 @@ Save this as `.judgement/rules.json` in your repository. Run Judgement before a 
 or in CI. It uses [Jev](https://typesafe.ai) to make focused judgments and reads
 related source files from the exact Git snapshot being checked.
 
-## Agent instructions
+## Agent skill
 
-Coding agents: read [the agent guide](docs/agents.md) before adding or tuning rules.
-It is included in the npm package and covers fixtures, commands, uncertainty, and
-validation. Projects should keep their rules and examples, not copy the runner.
+Install the [Judgement skill](skills/judgement/SKILL.md) with the
+[skills CLI](https://skills.sh/docs/cli):
+
+```sh
+npx skills add RooCodeInc/judgement --skill judgement
+```
+
+The installer lets you choose the agents to use it with. The skill can be selected
+for requests such as “never do that again,” “add a rule to prevent this mistake,”
+or “calibrate this Judgement rule.” It guides the agent to scope the requirement,
+reuse existing rules, add labeled examples, and test the chosen cutoff. Mechanical
+checks and conversation-only preferences are routed to the appropriate tooling.
+
+You can also copy the complete `skills/judgement/` directory into your agent's
+skill directory. Keep its `references/` directory alongside `SKILL.md`. The skill
+is included in the npm package; installing it configures agent guidance. Projects
+configure the Judgement CLI, rules, and inference separately.
 
 ## Install
 
@@ -35,7 +49,7 @@ Node 22.20+ or 24+ and Git are required. Glob matching uses the small `picomatch
 Install the published package from npm.
 
 ```sh
-npm install --save-dev --save-exact @roo-code/judgement@0.3.0
+npm install --save-dev --save-exact @roo-code/judgement@0.4.0
 export TYPESAFE_API_KEY=...
 ./node_modules/.bin/judgement check --staged
 ```
@@ -57,8 +71,9 @@ or evidence is insufficient, it reports **incomplete** and allows the commit.
 It never presents an unfinished review as a pass. Process startup and operating
 system scheduling add overhead; use the benchmark to measure your environment.
 
-A required CI check must finish that work before merging. Judgement does not
-schedule a background check or configure branch protection for you.
+Use strict checks in CI to finish that work. Projects choose whether the status
+is required before merge. Judgement does not schedule a background check or
+configure branch protection for you.
 
 For the [pre-commit framework](https://pre-commit.com), use this repository's
 `.pre-commit-hooks.yaml` with `rev: v0.1.5` and hook `id: judgement`.
